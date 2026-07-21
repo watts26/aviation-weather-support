@@ -1,0 +1,17 @@
+[project]
+name = "aviation-weather-support"
+version = "0.1.0"
+description = "A command-line tool for retrieving and processing aviation weather data."
+readme = "README.md"
+authors = [
+    { name = "watts26", email = "jmwatts26@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+aviation-weather-support = "aviation_weather_support:main"
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"
