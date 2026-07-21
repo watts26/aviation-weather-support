@@ -20,6 +20,12 @@ The command validates and normalizes an ICAO identifier, retrieves its latest ME
 
 Planned direction: expand this foundation into practical aviation-weather decision support.
 
+## Planned Final Product
+
+The final version is planned as an interactive aviation-weather decision-support dashboard where users can enter an airport identifier, view current METAR and forecast information, and see clear flags for concerns such as low visibility, low ceilings, strong winds, and worsening weather.
+
+The dashboard will preserve raw API responses, present processed data clearly, and compare current and forecast conditions.
+
 ## Installation
 
 Install [uv](https://docs.astral.sh/uv/) if needed, clone or download this repository, and run the following command from the project directory:
