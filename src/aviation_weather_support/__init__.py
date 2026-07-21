@@ -2,6 +2,7 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 
 import requests
 
@@ -51,4 +52,39 @@ def main() -> None:
         print(f"Error: no METAR observation found for {args.airport}.", file=sys.stderr)
         raise SystemExit(1)
 
-    print(json.dumps(observations, indent=2))
+    observation = next(
+        observation
+        for observation in observations
+        if isinstance(observation, dict) and observation
+    )
+    processed = {
+        "icao_id": observation.get("icaoId"),
+        "airport_name": observation.get("name"),
+        "report_time": observation.get("reportTime"),
+        "raw_metar": observation.get("rawOb"),
+        "temperature_c": observation.get("temp"),
+        "dewpoint_c": observation.get("dewp"),
+        "wind_direction_deg": observation.get("wdir"),
+        "wind_speed_kt": observation.get("wspd"),
+        "wind_gust_kt": observation.get("wgst"),
+        "visibility_miles": observation.get("visib"),
+        "altimeter_hpa": observation.get("altim"),
+        "flight_category": observation.get("fltCat"),
+        "clouds": observation.get("clouds"),
+    }
+
+    raw_path = Path("data/raw") / f"{args.airport}_metar_raw.json"
+    processed_path = Path("data/processed") / f"{args.airport}_metar_processed.json"
+
+    try:
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        processed_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_text(json.dumps(observations, indent=2), encoding="utf-8")
+        processed_path.write_text(json.dumps(processed, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: unable to save METAR files: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    print(f"Saved METAR data for {args.airport}.")
+    print(f"Raw file: {raw_path}")
+    print(f"Processed file: {processed_path}")
