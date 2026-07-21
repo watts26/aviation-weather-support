@@ -7,7 +7,9 @@ authors = [
     { name = "watts26", email = "jmwatts26@gmail.com" }
 ]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "requests>=2.34.2",
+]
 
 [project.scripts]
 aviation-weather-support = "aviation_weather_support:main"
