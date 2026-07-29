@@ -1,22 +1,30 @@
 import argparse
 import json
-import re
+import logging
 import sys
 from pathlib import Path
 
-import requests
+from aviation_weather_support.api import MetarApiError
+from aviation_weather_support.logging_config import (
+    LoggingSetupError,
+    configure_logging,
+)
+from aviation_weather_support.models import MetarDataValidationError
+from aviation_weather_support.workflow import (
+    AirportValidationError,
+    normalize_airport,
+    retrieve_metar,
+)
 
 
-METAR_URL = "https://aviationweather.gov/api/data/metar"
+logger = logging.getLogger(__name__)
 
 
 def icao_identifier(value: str) -> str:
-    airport = value.upper()
-    if not re.fullmatch(r"[A-Z0-9]{4}", airport):
-        raise argparse.ArgumentTypeError(
-            "airport must be a four-character ICAO identifier containing only A-Z and 0-9 (for example KATL)"
-        )
-    return airport
+    try:
+        return normalize_airport(value)
+    except AirportValidationError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def main() -> None:
@@ -26,62 +34,55 @@ def main() -> None:
         type=icao_identifier,
         help="four-character ICAO identifier (for example KATL, not the IATA code ATL)",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="show operational INFO messages in the console",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write detailed DEBUG logs to PATH",
+    )
     args = parser.parse_args()
 
     try:
-        response = requests.get(
-            METAR_URL,
-            params={"ids": args.airport, "format": "json"},
-            headers={"User-Agent": "aviation-weather-support/0.1.0 METAR CLI"},
-            timeout=10,
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"Error: unable to retrieve METAR for {args.airport}: {exc}", file=sys.stderr)
+        configure_logging(verbose=args.verbose, log_file=args.log_file)
+    except LoggingSetupError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
     try:
-        observations = response.json()
-    except (requests.exceptions.JSONDecodeError, json.JSONDecodeError, ValueError) as exc:
-        print("Error: the METAR API returned invalid JSON.", file=sys.stderr)
+        result = retrieve_metar(args.airport)
+    except (MetarApiError, MetarDataValidationError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-
-    if not isinstance(observations, list) or not any(
-        isinstance(observation, dict) and observation for observation in observations
-    ):
-        print(f"Error: no METAR observation found for {args.airport}.", file=sys.stderr)
-        raise SystemExit(1)
-
-    observation = next(
-        observation
-        for observation in observations
-        if isinstance(observation, dict) and observation
-    )
-    processed = {
-        "icao_id": observation.get("icaoId"),
-        "airport_name": observation.get("name"),
-        "report_time": observation.get("reportTime"),
-        "raw_metar": observation.get("rawOb"),
-        "temperature_c": observation.get("temp"),
-        "dewpoint_c": observation.get("dewp"),
-        "wind_direction_deg": observation.get("wdir"),
-        "wind_speed_kt": observation.get("wspd"),
-        "wind_gust_kt": observation.get("wgst"),
-        "visibility_miles": observation.get("visib"),
-        "altimeter_hpa": observation.get("altim"),
-        "flight_category": observation.get("fltCat"),
-        "clouds": observation.get("clouds"),
-    }
 
     raw_path = Path("data/raw") / f"{args.airport}_metar_raw.json"
     processed_path = Path("data/processed") / f"{args.airport}_metar_processed.json"
+    logger.debug("Raw output path: %s", raw_path)
+    logger.debug("Processed output path: %s", processed_path)
 
     try:
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         processed_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_path.write_text(json.dumps(observations, indent=2), encoding="utf-8")
-        processed_path.write_text(json.dumps(processed, indent=2), encoding="utf-8")
+        raw_path.write_text(
+            json.dumps(result.raw_observations, indent=2), encoding="utf-8"
+        )
+        logger.info("Raw METAR response written to %s", raw_path)
+        processed_path.write_text(
+            json.dumps(result.processed, indent=2), encoding="utf-8"
+        )
+        logger.info("Processed METAR data written to %s", processed_path)
     except OSError as exc:
+        logger.error(
+            "Could not write METAR output files %s and %s: %s",
+            raw_path,
+            processed_path,
+            exc,
+        )
         print(f"Error: unable to save METAR files: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
