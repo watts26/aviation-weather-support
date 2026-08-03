@@ -1,3 +1,5 @@
+"""Retrieve current METAR observations from the Aviation Weather Center API."""
+
 import json
 import logging
 

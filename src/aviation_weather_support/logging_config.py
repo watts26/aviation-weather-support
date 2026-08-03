@@ -1,3 +1,5 @@
+"""Configure optional console and file logging for the application."""
+
 import logging
 import sys
 from pathlib import Path
@@ -42,6 +44,8 @@ def configure_logging(*, verbose: bool, log_file: Path | None) -> None:
 
 
 def _remove_handlers(logger: logging.Logger) -> None:
+    """Close and remove handlers previously attached to a logger."""
+
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
         handler.close()

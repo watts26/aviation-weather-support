@@ -76,6 +76,8 @@ def parse_visibility_miles(value: str | int | float | None) -> float | None:
 
 
 def assess_visibility(observation: MetarObservation) -> OperationalFlag:
+    """Assess the visibility flag from one validated observation."""
+
     visibility = parse_visibility_miles(observation.visibility_miles)
     if visibility is None:
         return OperationalFlag(
@@ -104,6 +106,8 @@ def assess_visibility(observation: MetarObservation) -> OperationalFlag:
 
 
 def assess_ceiling(observation: MetarObservation) -> OperationalFlag:
+    """Assess the ceiling flag from validated cloud layers."""
+
     if observation.clouds is None:
         return OperationalFlag(
             id="ceiling",
@@ -153,6 +157,8 @@ def assess_ceiling(observation: MetarObservation) -> OperationalFlag:
 
 
 def assess_wind(observation: MetarObservation) -> OperationalFlag:
+    """Assess combined sustained-wind and gust thresholds."""
+
     sustained = observation.wind_speed_kt
     gust = observation.wind_gust_kt
     observed = {"sustained_kt": sustained, "gust_kt": gust}

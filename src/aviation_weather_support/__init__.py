@@ -1,3 +1,5 @@
+"""Command-line entry point for retrieving and saving assessed METAR data."""
+
 import argparse
 import json
 import logging
@@ -10,6 +12,7 @@ from aviation_weather_support.logging_config import (
     configure_logging,
 )
 from aviation_weather_support.models import MetarDataValidationError
+from aviation_weather_support.operational import INFORMATIONAL_DISCLAIMER
 from aviation_weather_support.workflow import (
     AirportValidationError,
     normalize_airport,
@@ -21,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 def icao_identifier(value: str) -> str:
+    """Convert an argparse value to a validated ICAO identifier."""
+
     try:
         return normalize_airport(value)
     except AirportValidationError as exc:
@@ -28,7 +33,15 @@ def icao_identifier(value: str) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Retrieve the latest METAR observation.")
+    """Run the METAR retrieval, assessment, and JSON-saving CLI."""
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Retrieve and assess the latest METAR observation, then save raw "
+            "and processed JSON output."
+        ),
+        epilog=INFORMATIONAL_DISCLAIMER,
+    )
     parser.add_argument(
         "airport",
         type=icao_identifier,

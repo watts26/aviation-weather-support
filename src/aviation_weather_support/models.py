@@ -1,3 +1,5 @@
+"""Validate AWC METAR fields and map them to processed project data."""
+
 from datetime import datetime
 import logging
 
@@ -45,6 +47,8 @@ class MetarObservation(BaseModel):
     @field_validator("report_time")
     @classmethod
     def validate_report_time(cls, value: str) -> str:
+        """Require an ISO 8601 report timestamp."""
+
         try:
             datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError as exc:
@@ -52,6 +56,8 @@ class MetarObservation(BaseModel):
         return value
 
     def to_processed_dict(self) -> dict[str, object]:
+        """Return validated observation fields with project-owned names."""
+
         return {
             "icao_id": self.icao_id,
             "airport_name": self.airport_name,

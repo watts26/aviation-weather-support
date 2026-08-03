@@ -1,8 +1,10 @@
 [project]
 name = "aviation-weather-support"
 version = "0.1.0"
-description = "A command-line tool for retrieving and processing aviation weather data."
+description = "A METAR dashboard and CLI with validated current-condition operational flags."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "watts26", email = "jmwatts26@gmail.com" }
 ]

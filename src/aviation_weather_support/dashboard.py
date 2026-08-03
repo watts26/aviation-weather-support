@@ -1,3 +1,5 @@
+"""Render validated METAR conditions and operational flags with Streamlit."""
+
 import json
 from html import escape
 
@@ -225,18 +227,24 @@ AUBURN_STYLES = f"""
 
 
 def celsius_to_fahrenheit(value: int | float | None) -> float | None:
+    """Convert Celsius to Fahrenheit while preserving missing data."""
+
     if value is None:
         return None
     return (value * 9 / 5) + 32
 
 
 def knots_to_mph(value: int | float | None) -> float | None:
+    """Convert knots to miles per hour while preserving missing data."""
+
     if value is None:
         return None
     return value * 1.150779448
 
 
 def statute_miles_to_km(value: str | int | float | None) -> float | None:
+    """Convert a numeric statute-mile value to kilometers when possible."""
+
     if value is None:
         return None
     try:
@@ -247,12 +255,16 @@ def statute_miles_to_km(value: str | int | float | None) -> float | None:
 
 
 def hpa_to_inhg(value: int | float | None) -> float | None:
+    """Convert hectopascals to inches of mercury."""
+
     if value is None:
         return None
     return value * 0.0295299830714
 
 
 def format_temperature(value: int | float | None) -> str:
+    """Format temperature in Celsius and Fahrenheit."""
+
     converted = celsius_to_fahrenheit(value)
     if value is None or converted is None:
         return "Not reported"
@@ -260,6 +272,8 @@ def format_temperature(value: int | float | None) -> str:
 
 
 def format_speed(value: int | float | None) -> str:
+    """Format speed in knots and miles per hour."""
+
     converted = knots_to_mph(value)
     if value is None or converted is None:
         return "Not reported"
@@ -267,6 +281,8 @@ def format_speed(value: int | float | None) -> str:
 
 
 def format_visibility(value: str | int | float | None) -> str:
+    """Format visibility in statute miles and kilometers."""
+
     converted = statute_miles_to_km(value)
     if value is None or converted is None:
         return "Not reported"
@@ -275,6 +291,8 @@ def format_visibility(value: str | int | float | None) -> str:
 
 
 def format_altimeter(value: int | float | None) -> str:
+    """Format an altimeter setting in hPa and inHg."""
+
     converted = hpa_to_inhg(value)
     if value is None or converted is None:
         return "Not reported"
@@ -282,6 +300,8 @@ def format_altimeter(value: int | float | None) -> str:
 
 
 def format_wind(direction: int | None, speed: int | float | None) -> str:
+    """Format available wind direction and sustained speed."""
+
     if direction is None and speed is None:
         return "Not reported"
     if direction is None:
@@ -292,12 +312,16 @@ def format_wind(direction: int | None, speed: int | float | None) -> str:
 
 
 def cloud_rows(observation: MetarObservation) -> list[dict[str, object]]:
+    """Return cloud layers as plain records for dashboard display."""
+
     if observation.clouds is None:
         return []
     return [cloud.model_dump() for cloud in observation.clouds]
 
 
 def json_text(data: object) -> str:
+    """Serialize downloadable JSON with readable indentation."""
+
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -407,6 +431,8 @@ def render_operational_assessment(
 
 
 def main() -> None:
+    """Configure and run the interactive Streamlit dashboard."""
+
     configure_logging(verbose=False, log_file=None)
     st.set_page_config(
         page_title="Aviation Weather METAR Dashboard",
@@ -422,7 +448,15 @@ def main() -> None:
     )
 
     with st.form("metar-request"):
-        airport = st.text_input("ICAO identifier", value="KATL", max_chars=4)
+        airport = st.text_input(
+            "ICAO identifier",
+            value="KATL",
+            max_chars=4,
+            help=(
+                "Enter a four-character ICAO identifier such as KATL, not "
+                "the three-letter IATA code ATL."
+            ),
+        )
         submitted = st.form_submit_button("Load weather")
 
     if submitted:
@@ -447,6 +481,8 @@ def main() -> None:
 
 
 def render_result(result: MetarResult) -> None:
+    """Render one retrieved METAR result and its downloads."""
+
     observation = result.observation
     station_name = observation.airport_name or "Unknown station"
 

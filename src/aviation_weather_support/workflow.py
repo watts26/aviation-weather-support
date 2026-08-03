@@ -1,3 +1,5 @@
+"""Coordinate airport validation, METAR retrieval, and data assessment."""
+
 import logging
 import re
 from dataclasses import dataclass
@@ -22,7 +24,7 @@ class AirportValidationError(ValueError):
 
 @dataclass(frozen=True)
 class MetarResult:
-    """Raw and validated forms of one METAR request."""
+    """Raw, validated, assessed, and processed forms of one METAR request."""
 
     airport: str
     raw_observations: list[object]
@@ -32,6 +34,8 @@ class MetarResult:
 
 
 def normalize_airport(value: str) -> str:
+    """Normalize and validate a four-character ICAO identifier."""
+
     airport = value.upper()
     if not re.fullmatch(r"[A-Z0-9]{4}", airport):
         raise AirportValidationError(
