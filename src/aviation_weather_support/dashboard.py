@@ -6,6 +6,19 @@ import streamlit as st
 from aviation_weather_support.api import MetarApiError
 from aviation_weather_support.logging_config import configure_logging
 from aviation_weather_support.models import MetarDataValidationError, MetarObservation
+from aviation_weather_support.operational import (
+    CEILING_CAUTION_FT,
+    CEILING_SEVERE_FT,
+    SUSTAINED_WIND_CAUTION_KT,
+    SUSTAINED_WIND_SEVERE_KT,
+    VISIBILITY_CAUTION_SM,
+    VISIBILITY_SEVERE_SM,
+    WIND_GUST_CAUTION_KT,
+    WIND_GUST_SEVERE_KT,
+    CurrentConditionsAssessment,
+    FlagStatus,
+    OperationalFlag,
+)
 from aviation_weather_support.workflow import (
     AirportValidationError,
     MetarResult,
@@ -288,6 +301,111 @@ def json_text(data: object) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
+def format_flag_observation(flag: OperationalFlag) -> str:
+    """Format an operational flag's structured observation for display."""
+
+    if flag.status == FlagStatus.UNAVAILABLE:
+        return "Not reported"
+    if flag.id == "visibility":
+        return f"{flag.observed['visibility_sm']:g} SM"
+    if flag.id == "ceiling":
+        ceiling = flag.observed["ceiling_ft_agl"]
+        return "No ceiling reported" if ceiling is None else f"{ceiling:,} ft AGL"
+    if flag.id == "wind":
+        parts = []
+        sustained = flag.observed["sustained_kt"]
+        gust = flag.observed["gust_kt"]
+        if sustained is not None:
+            parts.append(f"{sustained:g} kt sustained")
+        if gust is not None:
+            parts.append(f"{gust:g} kt gust")
+        return " / ".join(parts)
+    return "Not reported"
+
+
+def render_operational_assessment(
+    assessment: CurrentConditionsAssessment,
+) -> None:
+    """Display current-condition flags with built-in Streamlit components."""
+
+    st.subheader("Current operational flags")
+    overall_messages = {
+        FlagStatus.NORMAL: "Normal — no reported condition exceeds a caution threshold.",
+        FlagStatus.CAUTION: "Caution — at least one reported condition meets a caution threshold.",
+        FlagStatus.SEVERE: "Severe — at least one reported condition meets a severe threshold.",
+        FlagStatus.UNAVAILABLE: "Unavailable — current-condition data is insufficient for these flags.",
+    }
+    alert = {
+        FlagStatus.NORMAL: st.success,
+        FlagStatus.CAUTION: st.warning,
+        FlagStatus.SEVERE: st.error,
+        FlagStatus.UNAVAILABLE: st.info,
+    }[assessment.overall_status]
+    alert(overall_messages[assessment.overall_status])
+
+    columns = st.columns(len(assessment.flags))
+    for column, flag in zip(columns, assessment.flags):
+        with column.container(border=True):
+            st.markdown(f"**{flag.label}**")
+            st.markdown(f"Status: **{flag.status.value.upper()}**")
+            st.write(format_flag_observation(flag))
+            st.caption(flag.message)
+
+    if not assessment.data_complete:
+        unavailable = ", ".join(
+            flag.label
+            for flag in assessment.flags
+            if flag.status == FlagStatus.UNAVAILABLE
+        )
+        st.warning(f"Incomplete assessment data: {unavailable} unavailable.")
+
+    st.info(assessment.disclaimer)
+    with st.expander("How these project-defined flags are determined"):
+        st.table(
+            [
+                {
+                    "Flag": "Visibility",
+                    "Normal": f"≥ {VISIBILITY_CAUTION_SM:g} SM",
+                    "Caution": (
+                        f"{VISIBILITY_SEVERE_SM:g} to "
+                        f"< {VISIBILITY_CAUTION_SM:g} SM"
+                    ),
+                    "Severe": f"< {VISIBILITY_SEVERE_SM:g} SM",
+                },
+                {
+                    "Flag": "Ceiling",
+                    "Normal": f"≥ {CEILING_CAUTION_FT:,} ft or none reported",
+                    "Caution": (
+                        f"{CEILING_SEVERE_FT:,}–{CEILING_CAUTION_FT - 1:,} ft"
+                    ),
+                    "Severe": f"< {CEILING_SEVERE_FT:,} ft",
+                },
+                {
+                    "Flag": "Sustained wind",
+                    "Normal": f"< {SUSTAINED_WIND_CAUTION_KT:g} kt",
+                    "Caution": (
+                        f"{SUSTAINED_WIND_CAUTION_KT:g}–"
+                        f"{SUSTAINED_WIND_SEVERE_KT - 1:g} kt"
+                    ),
+                    "Severe": f"≥ {SUSTAINED_WIND_SEVERE_KT:g} kt",
+                },
+                {
+                    "Flag": "Wind gust",
+                    "Normal": f"< {WIND_GUST_CAUTION_KT:g} kt",
+                    "Caution": (
+                        f"{WIND_GUST_CAUTION_KT:g}–"
+                        f"{WIND_GUST_SEVERE_KT - 1:g} kt"
+                    ),
+                    "Severe": f"≥ {WIND_GUST_SEVERE_KT:g} kt",
+                },
+            ]
+        )
+        st.caption(
+            "Ceiling is the lowest BKN, OVC, or vertical-visibility layer. "
+            "The wind flag uses the more severe sustained-wind or gust result."
+        )
+
+
 def main() -> None:
     configure_logging(verbose=False, log_file=None)
     st.set_page_config(
@@ -340,6 +458,8 @@ def render_result(result: MetarResult) -> None:
         f"<strong>{category}</strong></div>",
         unsafe_allow_html=True,
     )
+
+    render_operational_assessment(result.operational_assessment)
 
     st.subheader("Current conditions")
     temperature, dewpoint = st.columns(2)

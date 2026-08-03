@@ -16,7 +16,7 @@ A METAR response describes an airport's current observed weather, including the 
 
 ## Current functionality
 
-The command validates and normalizes an ICAO identifier, retrieves its latest METAR, saves the full response, and creates a processed JSON record with commonly used fields. The Streamlit dashboard uses the same retrieval, validation, and processing workflow and provides readable conditions, unit conversions, JSON views, and downloads. Enter a four-character ICAO identifier such as `KATL`, not a three-letter IATA code such as `ATL`.
+The command validates and normalizes an ICAO identifier, retrieves its latest METAR, saves the full response, and creates a processed JSON record with commonly used fields and current-condition operational flags. The Streamlit dashboard uses the same retrieval, validation, assessment, and processing workflow and provides readable conditions, unit conversions, operational flags, JSON views, and downloads. Enter a four-character ICAO identifier such as `KATL`, not a three-letter IATA code such as `ATL`.
 
 Planned direction: expand this foundation into practical aviation-weather decision support.
 
@@ -81,6 +81,25 @@ uv run streamlit run src/aviation_weather_support/dashboard.py
 
 Enter a four-character ICAO identifier and select **Load weather**. The dashboard does not retrieve weather until the button is selected. It displays the validated observation and provides raw and processed JSON downloads without writing API files to disk.
 
+## Current-condition operational flags
+
+The processed JSON and dashboard include reusable flags for visibility, ceiling, and wind. Each flag is `normal`, `caution`, `severe`, or `unavailable`. The overall status is the most severe known flag; if every flag is unavailable, the overall status is unavailable.
+
+These transparent, project-defined thresholds are used:
+
+| Flag | Normal | Caution | Severe |
+| --- | --- | --- | --- |
+| Visibility | 5 SM or more | 3 to less than 5 SM | Less than 3 SM |
+| Ceiling | 3,000 ft AGL or more, or no ceiling reported | 1,000–2,999 ft AGL | Less than 1,000 ft AGL |
+| Sustained wind | Less than 15 kt | 15–24 kt | 25 kt or more |
+| Wind gust | Less than 20 kt | 20–29 kt | 30 kt or more |
+
+Ceiling is the lowest reported `BKN`, `OVC`, or vertical-visibility (`VV`) layer. `FEW` and `SCT` layers are not treated as ceilings. The combined wind flag uses whichever of the sustained-wind or gust results is more severe.
+
+Missing values do not silently become normal. Missing or unusable visibility produces an unavailable visibility flag. An absent cloud-layer field, or a ceiling-forming layer without a usable base, produces an unavailable ceiling flag. Wind is unavailable only when both sustained wind and gust data are absent. Partial missing data is recorded with `data_complete: false` while the overall status continues to reflect the most severe known condition.
+
+> **Informational use only:** These project-defined thresholds are not official flight guidance and do not replace official weather products, aircraft or operator limitations, or pilot and dispatcher judgment.
+
 ## Output
 
-The complete API response is written to `data/raw/KATL_metar_raw.json`. The selected and renamed fields from the first observation are written to `data/processed/KATL_metar_processed.json`. These directories are created automatically.
+The complete API response is written to `data/raw/KATL_metar_raw.json`. The selected and renamed fields from the first observation, including the operational assessment, are written to `data/processed/KATL_metar_processed.json`. These directories are created automatically.

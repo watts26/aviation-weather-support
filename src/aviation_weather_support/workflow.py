@@ -7,6 +7,10 @@ from aviation_weather_support.models import (
     MetarObservation,
     validate_metar_observation,
 )
+from aviation_weather_support.operational import (
+    CurrentConditionsAssessment,
+    assess_current_conditions,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -23,6 +27,7 @@ class MetarResult:
     airport: str
     raw_observations: list[object]
     observation: MetarObservation
+    operational_assessment: CurrentConditionsAssessment
     processed: dict[str, object]
 
 
@@ -43,10 +48,16 @@ def retrieve_metar(airport: str) -> MetarResult:
     logger.info("Normalized airport identifier: %s", normalized_airport)
     raw_observations = fetch_metar(normalized_airport)
     observation = validate_metar_observation(raw_observations)
+    operational_assessment = assess_current_conditions(observation)
+    processed = observation.to_processed_dict()
+    processed["operational_assessment"] = operational_assessment.model_dump(
+        mode="json"
+    )
 
     return MetarResult(
         airport=normalized_airport,
         raw_observations=raw_observations,
         observation=observation,
-        processed=observation.to_processed_dict(),
+        operational_assessment=operational_assessment,
+        processed=processed,
     )

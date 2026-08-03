@@ -6,6 +6,7 @@ from aviation_weather_support.dashboard import (
     celsius_to_fahrenheit,
     cloud_rows,
     format_altimeter,
+    format_flag_observation,
     format_speed,
     format_temperature,
     format_visibility,
@@ -16,6 +17,7 @@ from aviation_weather_support.dashboard import (
     statute_miles_to_km,
 )
 from aviation_weather_support.models import validate_metar_observation
+from aviation_weather_support.operational import assess_current_conditions
 
 
 def test_celsius_to_fahrenheit_handles_values_zero_and_missing_data():
@@ -75,3 +77,28 @@ def test_json_text_is_readable_and_round_trips():
 
     assert text.endswith("\n")
     assert json.loads(text) == data
+
+
+def test_operational_flag_observations_are_readable():
+    observation = validate_metar_observation(
+        [
+            {
+                "icaoId": "KATL",
+                "reportTime": "2026-07-29T20:00:00Z",
+                "rawOb": "METAR KATL 292000Z 18015G20KT 4SM BKN020",
+                "visib": 4,
+                "wspd": 15,
+                "wgst": 20,
+                "clouds": [{"cover": "BKN", "base": 2000}],
+            }
+        ]
+    )
+    flags = {
+        flag.id: flag for flag in assess_current_conditions(observation).flags
+    }
+
+    assert format_flag_observation(flags["visibility"]) == "4 SM"
+    assert format_flag_observation(flags["ceiling"]) == "2,000 ft AGL"
+    assert format_flag_observation(flags["wind"]) == (
+        "15 kt sustained / 20 kt gust"
+    )

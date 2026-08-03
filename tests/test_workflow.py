@@ -6,6 +6,7 @@ import pytest
 
 from aviation_weather_support.api import MetarApiError
 from aviation_weather_support.models import MetarDataValidationError
+from aviation_weather_support.operational import FlagStatus
 from aviation_weather_support import workflow
 from aviation_weather_support.workflow import (
     AirportValidationError,
@@ -35,6 +36,10 @@ def test_shared_workflow_returns_untouched_raw_and_processed_data(monkeypatch):
         "Atlanta/Hartsfield-Jackson Intl, GA, US"
     )
     assert "receiptTime" in result.raw_observations[0]
+    assert result.operational_assessment.overall_status == FlagStatus.NORMAL
+    assert result.processed["operational_assessment"] == (
+        result.operational_assessment.model_dump(mode="json")
+    )
     fetch.assert_called_once_with("KATL")
 
 
