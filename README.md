@@ -9,7 +9,8 @@ The current Practicum 6 scope covers informational visibility, ceiling, and wind
 - [Repository setup and contribution guidance](AGENTS.md)
 - [Processed-data dictionary](docs/data-dictionary.md)
 - [MIT License](LICENSE)
-- [Practicum 6 Quarto report](reports/practicum-6.qmd) — forthcoming; the report is intentionally not included yet
+- [Practicum 6 Quarto report source](reports/practicum-6.qmd)
+- [Practicum 6 rendered PDF](output/pdf/practicum-6.pdf)
 
 ## Data source
 

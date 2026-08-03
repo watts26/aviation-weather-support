@@ -1,0 +1,176 @@
+---
+title: "Practicum 6: Current-Condition Operational Flags"
+author: "Jenna Watts"
+date: today
+date-format: "MMMM D, YYYY"
+format:
+  pdf:
+    documentclass: article
+    geometry:
+      - margin=0.8in
+    keep-tex: false
+jupyter: python3
+execute:
+  echo: false
+  warning: false
+  error: false
+---
+
+```{python}
+#| include: false
+import json
+import sys
+from datetime import date
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+from IPython.display import Markdown, display
+
+project_root = next(
+    candidate
+    for candidate in (Path.cwd(), *Path.cwd().parents)
+    if (candidate / "pyproject.toml").exists()
+)
+sys.path.insert(0, str(project_root / "src"))
+
+from aviation_weather_support.models import validate_metar_observation
+from aviation_weather_support.operational import (
+    CEILING_CAUTION_FT,
+    SUSTAINED_WIND_CAUTION_KT,
+    VISIBILITY_CAUTION_SM,
+    WIND_GUST_CAUTION_KT,
+    FlagStatus,
+    assess_current_conditions,
+)
+
+fixture_path = project_root / "tests" / "fixtures" / "metar-katl-success.json"
+raw_observations = json.loads(fixture_path.read_text(encoding="utf-8"))
+observation = validate_metar_observation(raw_observations)
+assessment = assess_current_conditions(observation)
+flags = {flag.id: flag for flag in assessment.flags}
+
+visibility = flags["visibility"].observed["visibility_sm"]
+ceiling = flags["ceiling"].observed["ceiling_ft_agl"]
+sustained_wind = flags["wind"].observed["sustained_kt"]
+wind_gust = flags["wind"].observed["gust_kt"]
+render_date = date.today().isoformat()
+```
+
+## Question
+
+**What operational concerns are present in the latest saved weather observation?**
+
+## Summary
+
+```{python}
+concerns = [
+    flag.label
+    for flag in assessment.flags
+    if flag.status in {FlagStatus.CAUTION, FlagStatus.SEVERE}
+]
+if concerns:
+    summary = "The saved observation has operational concern flags for " + ", ".join(concerns) + "."
+else:
+    summary = (
+        "The saved observation has no project-defined caution or severe flags. "
+        f"Its overall current-condition status is {assessment.overall_status.value}."
+    )
+display(Markdown(summary))
+```
+
+## Data and method
+
+The observation is a committed offline fixture originally obtained from the [Aviation Weather Center Data API](https://aviationweather.gov/data/api/). Rendering does not call the live API. The report loads the saved JSON and uses the project's existing `validate_metar_observation()` and `assess_current_conditions()` functions; it does not reproduce validation or assessment rules.
+
+```{python}
+metadata = f"""
+- **Saved file:** `tests/fixtures/metar-katl-success.json`
+- **Station:** `{observation.icao_id}` ({observation.airport_name})
+- **Observation timestamp:** `{observation.report_time}`
+- **Original request parameters:** `ids={observation.icao_id}`, `format=json`
+- **Units:** visibility in statute miles (SM), ceiling in feet above ground level (ft AGL), and wind in knots (kt)
+- **Report render date:** `{render_date}`
+"""
+display(Markdown(metadata))
+```
+
+## Current-condition evidence
+
+```{python}
+#| label: tbl-current-flags
+#| tbl-cap: "Observed conditions and project-generated operational statuses"
+gust_text = "Not reported" if wind_gust is None else f"{wind_gust:g} kt"
+rows = [
+    (
+        "Visibility",
+        f"{visibility:g} SM",
+        f"Below {VISIBILITY_CAUTION_SM:g} SM",
+        flags["visibility"].status.value.title(),
+    ),
+    (
+        "Ceiling",
+        f"{ceiling:,} ft AGL",
+        f"Below {CEILING_CAUTION_FT:,} ft AGL",
+        flags["ceiling"].status.value.title(),
+    ),
+    (
+        "Sustained wind",
+        f"{sustained_wind:g} kt",
+        f"{SUSTAINED_WIND_CAUTION_KT:g} kt or more",
+        f"{flags['wind'].status.value.title()} combined wind flag",
+    ),
+    (
+        "Wind gust",
+        gust_text,
+        f"{WIND_GUST_CAUTION_KT:g} kt or more",
+        f"{flags['wind'].status.value.title()} combined wind flag",
+    ),
+]
+table_lines = [
+    "| Condition | Observed | Caution boundary | Result |",
+    "| --- | ---: | ---: | --- |",
+]
+table_lines.extend("| " + " | ".join(row) + " |" for row in rows)
+display(Markdown("\n".join(table_lines)))
+```
+
+```{python}
+#| label: fig-threshold-proximity
+#| fig-cap: "Observed values normalized to their project caution boundaries. The index is for visualization only; operational statuses come from the project assessment."
+#| fig-width: 7
+#| fig-height: 2.8
+#| fig-pos: H
+labels = ["Visibility", "Ceiling", "Sustained wind"]
+proximity = [
+    VISIBILITY_CAUTION_SM / visibility,
+    CEILING_CAUTION_FT / ceiling,
+    sustained_wind / SUSTAINED_WIND_CAUTION_KT,
+]
+
+fig, ax = plt.subplots(figsize=(7, 2.8))
+bars = ax.barh(labels, proximity, color="#0B2341")
+ax.axvline(1.0, color="#E86100", linestyle="--", linewidth=2, label="Caution boundary")
+ax.set_xlim(0, 1.1)
+ax.set_xlabel("Proximity index (1.0 = caution boundary)")
+ax.invert_yaxis()
+ax.legend(loc="lower right", frameon=False)
+ax.spines[["top", "right"]].set_visible(False)
+for bar, value in zip(bars, proximity):
+    ax.text(value + 0.02, bar.get_y() + bar.get_height() / 2, f"{value:.2f}", va="center")
+fig.tight_layout()
+plt.show()
+```
+
+For visibility and ceiling, lower observations are more concerning, so the figure divides the caution boundary by the observation. For sustained wind, higher observations are more concerning, so it divides the observation by the caution boundary. A value of 1.0 reaches the caution boundary. Gust is omitted because no gust value was reported. This normalization supports visual comparison only and does not determine any flag.
+
+## Interpretation
+
+KATL reported 9 SM visibility, a 20,000 ft AGL ceiling, and 9 kt sustained wind. Each assessable condition remains on the normal side of its project caution boundary, and the project assessment returns an overall status of **normal** with complete data. No gust was reported; the combined wind flag remains assessable from the sustained-wind value. These results are informational and are not official flight guidance.
+
+## Rebuild
+
+After installing the locked dependencies with `uv sync`, rebuild the PDF from the repository root with:
+
+```console
+uv run quarto render reports/practicum-6.qmd --to pdf --output-dir ../output/pdf
+```
