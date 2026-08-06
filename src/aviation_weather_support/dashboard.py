@@ -1,7 +1,7 @@
 """Render validated METAR conditions and operational flags with Streamlit."""
 
 import json
-from html import escape
+from collections.abc import MutableMapping
 
 import streamlit as st
 
@@ -9,7 +9,6 @@ from aviation_weather_support.api import MetarApiError
 from aviation_weather_support.logging_config import configure_logging
 from aviation_weather_support.models import MetarDataValidationError, MetarObservation
 from aviation_weather_support.operational_rules import (
-    ConcernLevel,
     HazardAssessment,
     OperationalAssessment,
 )
@@ -50,10 +49,6 @@ AUBURN_STYLES = f"""
         border-bottom: 3px solid {AUBURN_ORANGE};
         padding-bottom: 0.55rem;
     }}
-    h2, h3 {{
-        border-left: 4px solid {AUBURN_BLUE};
-        padding-left: 0.7rem;
-    }}
     .dashboard-subtitle {{
         color: #C6CDD5 !important;
         font-size: 1.05rem;
@@ -83,22 +78,6 @@ AUBURN_STYLES = f"""
         line-height: 1.25;
         overflow-wrap: anywhere;
         white-space: normal;
-    }}
-    .flight-category {{
-        background: {AUBURN_BLUE};
-        border: 1px solid {AUBURN_ORANGE};
-        border-radius: 0.6rem;
-        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
-        color: #F4F6F8;
-        display: inline-flex;
-        gap: 0.65rem;
-        align-items: baseline;
-        padding: 0.55rem 0.85rem;
-        margin: 0.25rem 0 1.25rem;
-    }}
-    .flight-category strong {{
-        color: {AUBURN_ORANGE};
-        font-size: 1.2rem;
     }}
     div[data-testid="stCaptionContainer"],
     div[data-testid="stCaptionContainer"] p,
@@ -317,6 +296,16 @@ def json_text(data: object) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
+def clear_dashboard_state(
+    state: MutableMapping[str, object] | None = None,
+) -> None:
+    """Clear the station input and displayed result without other side effects."""
+
+    dashboard_state = state if state is not None else st.session_state
+    dashboard_state["airport_input"] = ""
+    dashboard_state.pop("metar_result", None)
+
+
 def format_hazard_observation(hazard: HazardAssessment) -> str:
     """Format one hazard's structured observation for display."""
 
@@ -344,35 +333,101 @@ def format_hazard_observation(hazard: HazardAssessment) -> str:
     return json.dumps(observed, ensure_ascii=False)
 
 
+def find_hazard(
+    assessment: OperationalAssessment, hazard_id: str
+) -> HazardAssessment | None:
+    """Return the assessment for one hazard identifier when present."""
+
+    return next(
+        (hazard for hazard in assessment.hazards if hazard.id == hazard_id),
+        None,
+    )
+
+
+def summary_fields(result: MetarResult) -> tuple[tuple[str, str], ...]:
+    """Return the prominent dashboard summary without reclassifying data."""
+
+    observation = result.observation
+    assessment = result.operational_assessment
+    freshness = find_hazard(assessment, "observation_freshness")
+    freshness_values = freshness.observed_value if freshness else {}
+    observation_time = freshness_values.get("observation_time")
+    age = (
+        format_hazard_observation(freshness)
+        if freshness is not None
+        else "Time unavailable"
+    )
+    station_name = observation.airport_name or "Unknown station"
+
+    return (
+        ("Airport / station", f"{station_name} ({observation.icao_id})"),
+        (
+            "Observation time",
+            str(observation_time) if observation_time is not None else "Unavailable",
+        ),
+        ("Observation age", age),
+        (
+            "Official flight category",
+            assessment.flight_category.category.value,
+        ),
+        ("Overall concern level", assessment.overall_display_label),
+    )
+
+
+def hazard_table_rows(
+    assessment: OperationalAssessment,
+) -> list[dict[str, str]]:
+    """Return compact, consistently labeled hazard table rows."""
+
+    return [
+        {
+            "Hazard": hazard.label,
+            "Concern level": hazard.display_label,
+            "Observed value": format_hazard_observation(hazard),
+            "Trigger": hazard.trigger,
+        }
+        for hazard in assessment.hazards
+    ]
+
+
+def render_summary(result: MetarResult) -> None:
+    """Display the most important station and assessment values first."""
+
+    st.subheader("At-a-glance summary")
+    fields = summary_fields(result)
+    first_row = st.columns(3)
+    for column, (label, value) in zip(first_row, fields[:3], strict=True):
+        column.metric(label, value)
+    second_row = st.columns(2)
+    for column, (label, value) in zip(second_row, fields[3:], strict=True):
+        column.metric(label, value)
+
+    st.caption(f"AWC report time: {result.observation.report_time}")
+    st.caption(result.operational_assessment.flight_category.operational_judgment)
+
+
 def render_operational_assessment(
     assessment: OperationalAssessment,
 ) -> None:
     """Display centralized project-defined hazard results."""
 
     st.subheader("Project-defined operational hazard screening")
-    alert = {
-        ConcernLevel.NOT_TRIGGERED: st.success,
-        ConcernLevel.ATTENTION: st.warning,
-        ConcernLevel.HIGH_ATTENTION: st.error,
-        ConcernLevel.UNAVAILABLE: st.info,
-    }[assessment.overall_concern]
-    alert(f"Overall concern: {assessment.overall_display_label}")
+    st.table(hazard_table_rows(assessment))
 
-    st.table(
-        [
-            {
-                "Hazard": hazard.label,
-                "Concern": hazard.display_label,
-                "Observed": format_hazard_observation(hazard),
-                "Trigger": hazard.trigger,
-            }
-            for hazard in assessment.hazards
-        ]
-    )
 
-    with st.expander("Hazard sources and operational context"):
+def render_sources_limitations_disclaimer(
+    assessment: OperationalAssessment,
+) -> None:
+    """Display supporting sources, data limitations, and disclaimer last."""
+
+    st.divider()
+    st.subheader("Sources, limitations, and disclaimer")
+    with st.expander("Sources and rule context"):
+        st.markdown("**Official flight category**")
+        for source in assessment.flight_category.source_basis:
+            st.markdown(f"- [{source.title}]({source.url}): {source.relevance}")
         for hazard in assessment.hazards:
-            st.markdown(f"**{hazard.label}: {hazard.display_label}**")
+            st.markdown(f"**{hazard.label}**")
             st.write(hazard.operational_judgment)
             if hazard.confidence_note:
                 st.caption(hazard.confidence_note)
@@ -418,13 +473,21 @@ def main() -> None:
         airport = st.text_input(
             "ICAO identifier",
             value="KATL",
+            key="airport_input",
             max_chars=4,
             help=(
                 "Enter a four-character ICAO identifier such as KATL, not "
                 "the three-letter IATA code ATL."
             ),
         )
-        submitted = st.form_submit_button("Load weather")
+        st.caption(
+            "Enter a four-letter ICAO airport identifier, such as KATL or KJFK."
+        )
+        load_button, clear_button = st.columns(2)
+        submitted = load_button.form_submit_button("Load weather")
+        clear_button.form_submit_button(
+            "Clear / Reset", on_click=clear_dashboard_state
+        )
 
     if submitted:
         st.session_state.pop("metar_result", None)
@@ -451,22 +514,12 @@ def render_result(result: MetarResult) -> None:
     """Render one retrieved METAR result and its downloads."""
 
     observation = result.observation
-    station_name = observation.airport_name or "Unknown station"
-
-    st.subheader(f"{station_name} ({observation.icao_id})")
-    st.caption(f"Report time: {observation.report_time}")
-    category_result = result.operational_assessment.flight_category
-    category = escape(category_result.category.value)
-    st.markdown(
-        f'<div class="flight-category"><span>Official weather category</span>'
-        f"<strong>{category}</strong></div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(category_result.operational_judgment)
-
+    render_summary(result)
     render_operational_assessment(result.operational_assessment)
 
-    st.subheader("Current conditions")
+    st.divider()
+    st.subheader("Detailed weather")
+    st.markdown("### Current conditions")
     temperature, dewpoint = st.columns(2)
     temperature.metric(
         "Temperature", format_temperature(observation.temperature_c)
@@ -488,8 +541,7 @@ def render_result(result: MetarResult) -> None:
         "Altimeter", format_altimeter(observation.altimeter_hpa)
     )
 
-    st.divider()
-    st.subheader("Cloud layers")
+    st.markdown("### Cloud layers")
     clouds = cloud_rows(observation)
     if clouds:
         st.dataframe(
@@ -504,10 +556,10 @@ def render_result(result: MetarResult) -> None:
     else:
         st.info("No cloud layers were reported.")
 
-    st.subheader("Raw METAR observation")
+    st.markdown("### Raw METAR observation")
     st.code(observation.raw_metar, language=None)
 
-    st.subheader("JSON data and downloads")
+    st.markdown("### JSON data and downloads")
     with st.expander("Complete raw API JSON"):
         st.json(result.raw_observations)
     with st.expander("Processed METAR JSON"):
@@ -526,6 +578,8 @@ def render_result(result: MetarResult) -> None:
         file_name=f"{result.airport}_metar_processed.json",
         mime="application/json",
     )
+
+    render_sources_limitations_disclaimer(result.operational_assessment)
 
 
 if __name__ == "__main__":
