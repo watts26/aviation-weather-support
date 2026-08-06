@@ -37,6 +37,12 @@ def fetch_metar(airport: str) -> list[object]:
         logger.warning("METAR API request failed for %s: %s", airport, exc)
         raise MetarApiError(f"unable to retrieve METAR for {airport}: {exc}") from exc
 
+    if response.status_code == requests.codes.no_content:
+        logger.warning("No current METAR observation was returned for %s", airport)
+        raise MetarApiError(
+            f"No current METAR observation was found for {airport}."
+        )
+
     try:
         observations = response.json()
     except (requests.exceptions.JSONDecodeError, json.JSONDecodeError, ValueError) as exc:
@@ -48,7 +54,9 @@ def fetch_metar(airport: str) -> list[object]:
         isinstance(observation, dict) and observation for observation in observations
     ):
         logger.warning("No METAR observation was returned for %s", airport)
-        raise MetarApiError(f"no METAR observation found for {airport}.")
+        raise MetarApiError(
+            f"No current METAR observation was found for {airport}."
+        )
 
     logger.info("Received %d METAR observation(s) for %s", len(observations), airport)
     return observations

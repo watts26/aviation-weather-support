@@ -24,6 +24,7 @@ def load_fixture(name: str):
 def test_fetch_metar_returns_fixture_and_sends_expected_request(monkeypatch):
     expected = load_fixture("metar-katl-success.json")
     response = Mock()
+    response.status_code = 200
     response.json.return_value = expected
     get = Mock(return_value=response)
     monkeypatch.setattr("aviation_weather_support.api.requests.get", get)
@@ -55,7 +56,10 @@ def test_fetch_metar_explains_an_http_failure(monkeypatch):
 
 def test_fetch_metar_rejects_malformed_json(monkeypatch):
     response = Mock()
-    response.json.side_effect = ValueError("not JSON")
+    response.status_code = 200
+    response.json.side_effect = json.JSONDecodeError(
+        "Expecting property name", "{", 1
+    )
     monkeypatch.setattr(
         "aviation_weather_support.api.requests.get", Mock(return_value=response)
     )
@@ -64,12 +68,49 @@ def test_fetch_metar_rejects_malformed_json(monkeypatch):
         fetch_metar("KATL")
 
 
-def test_fetch_metar_rejects_an_empty_response(monkeypatch):
+def test_fetch_metar_rejects_a_200_empty_json_list(monkeypatch):
     response = Mock()
+    response.status_code = 200
     response.json.return_value = load_fixture("metar-empty.json")
     monkeypatch.setattr(
         "aviation_weather_support.api.requests.get", Mock(return_value=response)
     )
 
-    with pytest.raises(MetarApiError, match="no METAR observation found for KATL"):
+    with pytest.raises(
+        MetarApiError,
+        match="No current METAR observation was found for KATL",
+    ):
+        fetch_metar("KATL")
+
+
+def test_fetch_metar_treats_204_as_no_observation_without_parsing_json(
+    monkeypatch,
+):
+    response = Mock()
+    response.status_code = 204
+    monkeypatch.setattr(
+        "aviation_weather_support.api.requests.get", Mock(return_value=response)
+    )
+
+    with pytest.raises(
+        MetarApiError,
+        match="No current METAR observation was found for KAUO",
+    ):
+        fetch_metar("KAUO")
+
+    response.raise_for_status.assert_called_once_with()
+    response.json.assert_not_called()
+
+
+def test_fetch_metar_rejects_a_200_empty_body_as_invalid_json(monkeypatch):
+    response = Mock()
+    response.status_code = 200
+    response.json.side_effect = requests.exceptions.JSONDecodeError(
+        "Expecting value", "", 0
+    )
+    monkeypatch.setattr(
+        "aviation_weather_support.api.requests.get", Mock(return_value=response)
+    )
+
+    with pytest.raises(MetarApiError, match="returned invalid JSON"):
         fetch_metar("KATL")

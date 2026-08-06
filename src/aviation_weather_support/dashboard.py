@@ -8,18 +8,10 @@ import streamlit as st
 from aviation_weather_support.api import MetarApiError
 from aviation_weather_support.logging_config import configure_logging
 from aviation_weather_support.models import MetarDataValidationError, MetarObservation
-from aviation_weather_support.operational import (
-    CEILING_CAUTION_FT,
-    CEILING_SEVERE_FT,
-    SUSTAINED_WIND_CAUTION_KT,
-    SUSTAINED_WIND_SEVERE_KT,
-    VISIBILITY_CAUTION_SM,
-    VISIBILITY_SEVERE_SM,
-    WIND_GUST_CAUTION_KT,
-    WIND_GUST_SEVERE_KT,
-    CurrentConditionsAssessment,
-    FlagStatus,
-    OperationalFlag,
+from aviation_weather_support.operational_rules import (
+    ConcernLevel,
+    HazardAssessment,
+    OperationalAssessment,
 )
 from aviation_weather_support.workflow import (
     AirportValidationError,
@@ -316,7 +308,7 @@ def cloud_rows(observation: MetarObservation) -> list[dict[str, object]]:
 
     if observation.clouds is None:
         return []
-    return [cloud.model_dump() for cloud in observation.clouds]
+    return [cloud.model_dump(exclude_none=True) for cloud in observation.clouds]
 
 
 def json_text(data: object) -> str:
@@ -325,109 +317,84 @@ def json_text(data: object) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def format_flag_observation(flag: OperationalFlag) -> str:
-    """Format an operational flag's structured observation for display."""
+def format_hazard_observation(hazard: HazardAssessment) -> str:
+    """Format one hazard's structured observation for display."""
 
-    if flag.status == FlagStatus.UNAVAILABLE:
-        return "Not reported"
-    if flag.id == "visibility":
-        return f"{flag.observed['visibility_sm']:g} SM"
-    if flag.id == "ceiling":
-        ceiling = flag.observed["ceiling_ft_agl"]
-        return "No ceiling reported" if ceiling is None else f"{ceiling:,} ft AGL"
-    if flag.id == "wind":
+    observed = hazard.observed_value
+    if hazard.id in {"thunderstorm", "freezing_precipitation"}:
+        weather = observed.get("present_weather")
+        return str(weather) if weather else "No significant present weather reported"
+    if hazard.id == "convective_cloud":
+        cloud_types = observed.get("cloud_types")
+        if cloud_types is None:
+            return "Cloud data unavailable"
+        return ", ".join(cloud_types) if cloud_types else "No CB or TCU reported"
+    if hazard.id == "wind":
         parts = []
-        sustained = flag.observed["sustained_kt"]
-        gust = flag.observed["gust_kt"]
+        sustained = observed.get("sustained_kt")
+        gust = observed.get("gust_kt")
         if sustained is not None:
             parts.append(f"{sustained:g} kt sustained")
         if gust is not None:
             parts.append(f"{gust:g} kt gust")
-        return " / ".join(parts)
-    return "Not reported"
+        return " / ".join(parts) or "Wind data unavailable"
+    if hazard.id == "observation_freshness":
+        age = observed.get("age_minutes")
+        return "Time unavailable" if age is None else f"{age:g} minutes old"
+    return json.dumps(observed, ensure_ascii=False)
 
 
 def render_operational_assessment(
-    assessment: CurrentConditionsAssessment,
+    assessment: OperationalAssessment,
 ) -> None:
-    """Display current-condition flags with built-in Streamlit components."""
+    """Display centralized project-defined hazard results."""
 
-    st.subheader("Current operational flags")
-    overall_messages = {
-        FlagStatus.NORMAL: "Normal — no reported condition exceeds a caution threshold.",
-        FlagStatus.CAUTION: "Caution — at least one reported condition meets a caution threshold.",
-        FlagStatus.SEVERE: "Severe — at least one reported condition meets a severe threshold.",
-        FlagStatus.UNAVAILABLE: "Unavailable — current-condition data is insufficient for these flags.",
-    }
+    st.subheader("Project-defined operational hazard screening")
     alert = {
-        FlagStatus.NORMAL: st.success,
-        FlagStatus.CAUTION: st.warning,
-        FlagStatus.SEVERE: st.error,
-        FlagStatus.UNAVAILABLE: st.info,
-    }[assessment.overall_status]
-    alert(overall_messages[assessment.overall_status])
+        ConcernLevel.NOT_TRIGGERED: st.success,
+        ConcernLevel.ATTENTION: st.warning,
+        ConcernLevel.HIGH_ATTENTION: st.error,
+        ConcernLevel.UNAVAILABLE: st.info,
+    }[assessment.overall_concern]
+    alert(f"Overall concern: {assessment.overall_display_label}")
 
-    columns = st.columns(len(assessment.flags))
-    for column, flag in zip(columns, assessment.flags):
-        with column.container(border=True):
-            st.markdown(f"**{flag.label}**")
-            st.markdown(f"Status: **{flag.status.value.upper()}**")
-            st.write(format_flag_observation(flag))
-            st.caption(flag.message)
+    st.table(
+        [
+            {
+                "Hazard": hazard.label,
+                "Concern": hazard.display_label,
+                "Observed": format_hazard_observation(hazard),
+                "Trigger": hazard.trigger,
+            }
+            for hazard in assessment.hazards
+        ]
+    )
+
+    with st.expander("Hazard sources and operational context"):
+        for hazard in assessment.hazards:
+            st.markdown(f"**{hazard.label}: {hazard.display_label}**")
+            st.write(hazard.operational_judgment)
+            if hazard.confidence_note:
+                st.caption(hazard.confidence_note)
+            for source in hazard.source_basis:
+                st.markdown(f"- [{source.title}]({source.url}): {source.relevance}")
 
     if not assessment.data_complete:
         unavailable = ", ".join(
-            flag.label
-            for flag in assessment.flags
-            if flag.status == FlagStatus.UNAVAILABLE
+            hazard.label
+            for hazard in assessment.hazards
+            if not hazard.data_complete
         )
-        st.warning(f"Incomplete assessment data: {unavailable} unavailable.")
+        category_note = (
+            "official flight category; "
+            if not assessment.flight_category.data_complete
+            else ""
+        )
+        st.warning(
+            f"Incomplete assessment data: {category_note}{unavailable or 'none'}."
+        )
 
     st.info(assessment.disclaimer)
-    with st.expander("How these project-defined flags are determined"):
-        st.table(
-            [
-                {
-                    "Flag": "Visibility",
-                    "Normal": f"≥ {VISIBILITY_CAUTION_SM:g} SM",
-                    "Caution": (
-                        f"{VISIBILITY_SEVERE_SM:g} to "
-                        f"< {VISIBILITY_CAUTION_SM:g} SM"
-                    ),
-                    "Severe": f"< {VISIBILITY_SEVERE_SM:g} SM",
-                },
-                {
-                    "Flag": "Ceiling",
-                    "Normal": f"≥ {CEILING_CAUTION_FT:,} ft or none reported",
-                    "Caution": (
-                        f"{CEILING_SEVERE_FT:,}–{CEILING_CAUTION_FT - 1:,} ft"
-                    ),
-                    "Severe": f"< {CEILING_SEVERE_FT:,} ft",
-                },
-                {
-                    "Flag": "Sustained wind",
-                    "Normal": f"< {SUSTAINED_WIND_CAUTION_KT:g} kt",
-                    "Caution": (
-                        f"{SUSTAINED_WIND_CAUTION_KT:g}–"
-                        f"{SUSTAINED_WIND_SEVERE_KT - 1:g} kt"
-                    ),
-                    "Severe": f"≥ {SUSTAINED_WIND_SEVERE_KT:g} kt",
-                },
-                {
-                    "Flag": "Wind gust",
-                    "Normal": f"< {WIND_GUST_CAUTION_KT:g} kt",
-                    "Caution": (
-                        f"{WIND_GUST_CAUTION_KT:g}–"
-                        f"{WIND_GUST_SEVERE_KT - 1:g} kt"
-                    ),
-                    "Severe": f"≥ {WIND_GUST_SEVERE_KT:g} kt",
-                },
-            ]
-        )
-        st.caption(
-            "Ceiling is the lowest BKN, OVC, or vertical-visibility layer. "
-            "The wind flag uses the more severe sustained-wind or gust result."
-        )
 
 
 def main() -> None:
@@ -488,12 +455,14 @@ def render_result(result: MetarResult) -> None:
 
     st.subheader(f"{station_name} ({observation.icao_id})")
     st.caption(f"Report time: {observation.report_time}")
-    category = escape(observation.flight_category or "Not reported")
+    category_result = result.operational_assessment.flight_category
+    category = escape(category_result.category.value)
     st.markdown(
-        f'<div class="flight-category"><span>Flight category</span>'
+        f'<div class="flight-category"><span>Official weather category</span>'
         f"<strong>{category}</strong></div>",
         unsafe_allow_html=True,
     )
+    st.caption(category_result.operational_judgment)
 
     render_operational_assessment(result.operational_assessment)
 

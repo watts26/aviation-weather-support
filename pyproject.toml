@@ -26,5 +26,6 @@ build-backend = "uv_build"
 dev = [
     "jupyter>=1.1.1",
     "matplotlib>=3.10.8",
+    "papermill>=2.6.0",
     "pytest>=9.1.1",
 ]

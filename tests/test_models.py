@@ -23,6 +23,8 @@ def test_successful_katl_fixture_is_validated():
     )
 
     assert observation.icao_id == "KATL"
+    assert observation.observation_time == 1785354720
+    assert observation.receipt_time == "2026-07-29T19:57:49.891Z"
     assert observation.report_time == "2026-07-29T20:00:00.000Z"
     assert observation.raw_metar.startswith("METAR KATL")
     assert observation.wind_speed_kt == 9
@@ -80,6 +82,8 @@ def test_processed_output_mapping_matches_practicum_four_fields():
     assert observation.to_processed_dict() == {
         "icao_id": "KATL",
         "airport_name": "Atlanta/Hartsfield-Jackson Intl, GA, US",
+        "observation_time": 1785354720,
+        "receipt_time": "2026-07-29T19:57:49.891Z",
         "report_time": "2026-07-29T20:00:00.000Z",
         "raw_metar": (
             "METAR KATL 291952Z 32009KT 9SM SCT160 BKN200 BKN250 31/23 "
@@ -91,11 +95,29 @@ def test_processed_output_mapping_matches_practicum_four_fields():
         "wind_speed_kt": 9,
         "wind_gust_kt": None,
         "visibility_miles": 9,
+        "weather_string": None,
         "altimeter_hpa": 1010.9,
         "flight_category": "VFR",
         "clouds": [
-            {"cover": "SCT", "base": 16000},
-            {"cover": "BKN", "base": 20000},
-            {"cover": "BKN", "base": 25000},
+            {"cover": "SCT", "base": 16000, "cloud_type": None},
+            {"cover": "BKN", "base": 20000, "cloud_type": None},
+            {"cover": "BKN", "base": 25000, "cloud_type": None},
         ],
     }
+
+
+def test_structured_weather_and_cloud_type_are_retained():
+    observation = validate_metar_observation(
+        [
+            {
+                "icaoId": "KATL",
+                "reportTime": "2026-07-29T20:00:00Z",
+                "rawOb": "METAR KATL 292000Z TSRA SCT030CB",
+                "wxString": "TSRA",
+                "clouds": [{"cover": "SCT", "base": 3000, "type": "CB"}],
+            }
+        ]
+    )
+
+    assert observation.weather_string == "TSRA"
+    assert observation.clouds[0].cloud_type == "CB"

@@ -19,8 +19,9 @@ class CloudLayer(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    cover: str
+    cover: str = Field(strict=True)
     base: int | None = Field(default=None, ge=0)
+    cloud_type: str | None = Field(default=None, alias="type", strict=True)
 
 
 class MetarObservation(BaseModel):
@@ -30,6 +31,8 @@ class MetarObservation(BaseModel):
 
     icao_id: str = Field(alias="icaoId", pattern=r"^[A-Z0-9]{4}$", strict=True)
     airport_name: str | None = Field(default=None, alias="name")
+    observation_time: int | float | str | None = Field(default=None, alias="obsTime")
+    receipt_time: str | None = Field(default=None, alias="receiptTime", strict=True)
     report_time: str = Field(alias="reportTime", min_length=1, strict=True)
     raw_metar: str = Field(alias="rawOb", min_length=1, strict=True)
     temperature_c: Number | None = Field(default=None, alias="temp")
@@ -40,6 +43,7 @@ class MetarObservation(BaseModel):
     wind_speed_kt: Number | None = Field(default=None, alias="wspd", ge=0)
     wind_gust_kt: Number | None = Field(default=None, alias="wgst", ge=0)
     visibility_miles: str | Number | None = Field(default=None, alias="visib")
+    weather_string: str | None = Field(default=None, alias="wxString", strict=True)
     altimeter_hpa: Number | None = Field(default=None, alias="altim", gt=0)
     flight_category: str | None = Field(default=None, alias="fltCat")
     clouds: list[CloudLayer] | None = None
@@ -61,6 +65,8 @@ class MetarObservation(BaseModel):
         return {
             "icao_id": self.icao_id,
             "airport_name": self.airport_name,
+            "observation_time": self.observation_time,
+            "receipt_time": self.receipt_time,
             "report_time": self.report_time,
             "raw_metar": self.raw_metar,
             "temperature_c": self.temperature_c,
@@ -69,6 +75,7 @@ class MetarObservation(BaseModel):
             "wind_speed_kt": self.wind_speed_kt,
             "wind_gust_kt": self.wind_gust_kt,
             "visibility_miles": self.visibility_miles,
+            "weather_string": self.weather_string,
             "altimeter_hpa": self.altimeter_hpa,
             "flight_category": self.flight_category,
             "clouds": (

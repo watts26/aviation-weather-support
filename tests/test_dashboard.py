@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -6,7 +7,7 @@ from aviation_weather_support.dashboard import (
     celsius_to_fahrenheit,
     cloud_rows,
     format_altimeter,
-    format_flag_observation,
+    format_hazard_observation,
     format_speed,
     format_temperature,
     format_visibility,
@@ -17,7 +18,7 @@ from aviation_weather_support.dashboard import (
     statute_miles_to_km,
 )
 from aviation_weather_support.models import validate_metar_observation
-from aviation_weather_support.operational import assess_current_conditions
+from aviation_weather_support.operational_rules import assess_current_conditions
 
 
 def test_celsius_to_fahrenheit_handles_values_zero_and_missing_data():
@@ -79,12 +80,13 @@ def test_json_text_is_readable_and_round_trips():
     assert json.loads(text) == data
 
 
-def test_operational_flag_observations_are_readable():
+def test_operational_hazard_observations_are_readable():
     observation = validate_metar_observation(
         [
             {
                 "icaoId": "KATL",
                 "reportTime": "2026-07-29T20:00:00Z",
+                "obsTime": 1785355200,
                 "rawOb": "METAR KATL 292000Z 18015G20KT 4SM BKN020",
                 "visib": 4,
                 "wspd": 15,
@@ -93,12 +95,14 @@ def test_operational_flag_observations_are_readable():
             }
         ]
     )
-    flags = {
-        flag.id: flag for flag in assess_current_conditions(observation).flags
+    hazard_by_id = {
+        hazard.id: hazard
+        for hazard in assess_current_conditions(
+            observation,
+            evaluated_at=datetime(2026, 7, 29, 20, 0, tzinfo=timezone.utc),
+        ).hazards
     }
 
-    assert format_flag_observation(flags["visibility"]) == "4 SM"
-    assert format_flag_observation(flags["ceiling"]) == "2,000 ft AGL"
-    assert format_flag_observation(flags["wind"]) == (
+    assert format_hazard_observation(hazard_by_id["wind"]) == (
         "15 kt sustained / 20 kt gust"
     )
