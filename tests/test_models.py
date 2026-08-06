@@ -48,6 +48,45 @@ def test_optional_weather_fields_may_be_absent():
     assert processed["clouds"] is None
 
 
+@pytest.mark.parametrize(
+    ("raw_direction", "expected_direction"),
+    [(320, 320), ("090", 90), ("VRB", "VRB"), (None, None)],
+)
+def test_wind_direction_accepts_awc_representations(
+    raw_direction, expected_direction
+):
+    data = deepcopy(load_fixture("metar-katl-success.json"))
+    data[0]["wdir"] = raw_direction
+
+    observation = validate_metar_observation(data)
+
+    assert observation.wind_direction_deg == expected_direction
+    assert observation.to_processed_dict()["wind_direction_deg"] == (
+        expected_direction
+    )
+
+
+def test_missing_wind_direction_preserves_other_weather_fields():
+    data = deepcopy(load_fixture("metar-katl-success.json"))
+    del data[0]["wdir"]
+
+    observation = validate_metar_observation(data)
+
+    assert observation.wind_direction_deg is None
+    assert observation.wind_speed_kt == 9
+    assert observation.temperature_c == 30.6
+    assert observation.visibility_miles == 9
+
+
+@pytest.mark.parametrize("invalid_direction", ["NORTH", -1, 361])
+def test_invalid_wind_direction_remains_rejected(invalid_direction):
+    data = deepcopy(load_fixture("metar-katl-success.json"))
+    data[0]["wdir"] = invalid_direction
+
+    with pytest.raises(MetarDataValidationError, match=r"at wdir:"):
+        validate_metar_observation(data)
+
+
 def test_missing_required_data_is_rejected():
     data = deepcopy(load_fixture("metar-katl-success.json"))
     del data[0]["rawOb"]

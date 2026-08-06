@@ -30,6 +30,7 @@ from IPython.display import Markdown, display
 
 from aviation_weather_support.reporting import (
     build_report_header,
+    format_wind_direction,
     load_report_render_data,
     portable_source_path,
 )
@@ -182,6 +183,7 @@ metadata = f"""
 - **Station:** `{observation.icao_id}` ({observation.airport_name})
 - **AWC observation time:** `{header.observation_time}`
 - **AWC report time:** `{observation.report_time}`
+- **Wind direction:** {format_wind_direction(observation.wind_direction_deg)}
 - **Retrieval time:** `{retrieval_time}`
 - **Assessment time:** `{header.evaluated_at}`
 - **Report date:** `{header.report_date}`

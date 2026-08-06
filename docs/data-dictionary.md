@@ -53,7 +53,7 @@ same station and observation again intentionally replaces that PDF.
 | `raw_metar` | string | METAR text | AWC `rawOb` | Required | Preserved report evidence |
 | `temperature_c` | number or null | Degrees Celsius | AWC `temp` | `null` when absent | Air temperature |
 | `dewpoint_c` | number or null | Degrees Celsius | AWC `dewp` | `null` when absent | Dew point |
-| `wind_direction_deg` | integer or null | 0-360 degrees true | AWC `wdir` | `null` when absent/variable | Numeric wind direction |
+| `wind_direction_deg` | integer, `"VRB"`, or null | 0-360 degrees true, variable, or unavailable | AWC `wdir` | `"VRB"` when variable; `null` when absent | Decoded wind direction |
 | `wind_speed_kt` | number or null | Knots, nonnegative | AWC `wspd` | `null` makes wind concern unavailable | Sustained wind speed |
 | `wind_gust_kt` | number or null | Knots, nonnegative | AWC `wgst` | `null` validly means no gust value reported | Gust speed |
 | `visibility_miles` | number, string, or null | Statute miles | AWC `visib` | Missing/unusable makes visibility dimension unavailable | Decoded prevailing visibility |

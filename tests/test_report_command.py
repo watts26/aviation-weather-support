@@ -76,6 +76,37 @@ def test_live_report_with_mocked_api_writes_all_artifacts(tmp_path):
     fetcher.assert_called_once_with("KATL")
 
 
+def test_live_report_processes_variable_wind_without_changing_raw(tmp_path):
+    response = load_fixture()
+    response[0]["wdir"] = "VRB"
+    original = json.loads(json.dumps(response))
+
+    generated = create_live_report(
+        tmp_path,
+        "KATL",
+        clock=lambda: RETRIEVED_AT,
+        fetcher=Mock(return_value=response),
+        renderer=successful_renderer,
+    )
+
+    evidence = json.loads(generated.raw_path.read_text(encoding="utf-8"))
+    processed = json.loads(generated.processed_path.read_text(encoding="utf-8"))
+    assert evidence["api_response"] == original
+    assert generated.result.raw_observations == original
+    assert processed["wind_direction_deg"] == "VRB"
+    assert processed["wind_speed_kt"] == 9
+    assert generated.pdf_path.is_file()
+    report_data = load_report_render_data(
+        tmp_path,
+        station="KATL",
+        evaluated_at="2026-08-05T19:41:32.891000Z",
+        raw_input_path=generated.raw_path,
+        processed_input_path=generated.processed_path,
+    )
+    assert report_data.observation.wind_direction_deg == "VRB"
+    assert report_data.observation.temperature_c == 30.6
+
+
 def test_replay_uses_saved_time_and_never_calls_api(tmp_path, monkeypatch):
     live = create_live_report(
         tmp_path,

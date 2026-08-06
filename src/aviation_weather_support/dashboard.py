@@ -7,7 +7,11 @@ import streamlit as st
 
 from aviation_weather_support.api import MetarApiError
 from aviation_weather_support.logging_config import configure_logging
-from aviation_weather_support.models import MetarDataValidationError, MetarObservation
+from aviation_weather_support.models import (
+    MetarDataValidationError,
+    MetarObservation,
+    WindDirection,
+)
 from aviation_weather_support.operational_rules import (
     HazardAssessment,
     OperationalAssessment,
@@ -64,6 +68,9 @@ AUBURN_STYLES = f"""
         border-left: 4px solid {AUBURN_ORANGE};
         border-radius: 0.6rem;
         box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+        box-sizing: border-box;
+        height: 100%;
+        min-height: 7.25rem;
         padding: 0.85rem 1rem;
     }}
     div[data-testid="stMetricLabel"],
@@ -71,13 +78,19 @@ AUBURN_STYLES = f"""
         color: #C9D0D8 !important;
         font-weight: 650;
     }}
-    div[data-testid="stMetricValue"],
-    div[data-testid="stMetricValue"] div {{
+    div[data-testid="stMetricValue"] {{
+        min-width: 0;
+        overflow: visible !important;
+    }}
+    div[data-testid="stMetricValue"] div,
+    div[data-testid="stMetricValue"] p {{
         color: #F8FAFC !important;
         font-size: clamp(1.15rem, 2.2vw, 1.75rem) !important;
         line-height: 1.25;
-        overflow-wrap: anywhere;
-        white-space: normal;
+        overflow: visible !important;
+        overflow-wrap: anywhere !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
     }}
     div[data-testid="stCaptionContainer"],
     div[data-testid="stCaptionContainer"] p,
@@ -270,13 +283,17 @@ def format_altimeter(value: int | float | None) -> str:
     return f"{value:.1f} hPa / {converted:.2f} inHg"
 
 
-def format_wind(direction: int | None, speed: int | float | None) -> str:
+def format_wind(
+    direction: WindDirection | None, speed: int | float | None
+) -> str:
     """Format available wind direction and sustained speed."""
 
     if direction is None and speed is None:
         return "Not reported"
     if direction is None:
         return format_speed(speed)
+    if direction == "VRB":
+        return "Variable" if speed is None else f"Variable at {format_speed(speed)}"
     if speed is None:
         return f"{direction}°"
     return f"{direction}° at {format_speed(speed)}"
@@ -395,7 +412,7 @@ def render_summary(result: MetarResult) -> None:
 
     st.subheader("At-a-glance summary")
     fields = summary_fields(result)
-    first_row = st.columns(3)
+    first_row = st.columns((2, 1.35, 1))
     for column, (label, value) in zip(first_row, fields[:3], strict=True):
         column.metric(label, value)
     second_row = st.columns(2)
@@ -469,10 +486,12 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
+    if "airport_input" not in st.session_state:
+        st.session_state["airport_input"] = "KATL"
+
     with st.form("metar-request"):
         airport = st.text_input(
             "ICAO identifier",
-            value="KATL",
             key="airport_input",
             max_chars=4,
             help=(

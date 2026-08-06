@@ -2,11 +2,13 @@
 
 from datetime import datetime
 import logging
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 Number = int | float
+WindDirection = int | Literal["VRB"]
 logger = logging.getLogger(__name__)
 
 
@@ -37,9 +39,7 @@ class MetarObservation(BaseModel):
     raw_metar: str = Field(alias="rawOb", min_length=1, strict=True)
     temperature_c: Number | None = Field(default=None, alias="temp")
     dewpoint_c: Number | None = Field(default=None, alias="dewp")
-    wind_direction_deg: int | None = Field(
-        default=None, alias="wdir", ge=0, le=360
-    )
+    wind_direction_deg: WindDirection | None = Field(default=None, alias="wdir")
     wind_speed_kt: Number | None = Field(default=None, alias="wspd", ge=0)
     wind_gust_kt: Number | None = Field(default=None, alias="wgst", ge=0)
     visibility_miles: str | Number | None = Field(default=None, alias="visib")
@@ -57,6 +57,17 @@ class MetarObservation(BaseModel):
             datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError as exc:
             raise ValueError("must be a valid ISO 8601 timestamp") from exc
+        return value
+
+    @field_validator("wind_direction_deg")
+    @classmethod
+    def validate_wind_direction(
+        cls, value: WindDirection | None
+    ) -> WindDirection | None:
+        """Limit numeric directions while retaining AWC's variable-wind marker."""
+
+        if isinstance(value, int) and not 0 <= value <= 360:
+            raise ValueError("must be between 0 and 360 degrees")
         return value
 
     def to_processed_dict(self) -> dict[str, object]:

@@ -61,6 +61,35 @@ def test_dashboard_formatting_keeps_original_units_first():
     assert format_wind(None, None) == "Not reported"
 
 
+def test_dashboard_displays_variable_wind_and_other_decoded_weather():
+    observation = validate_metar_observation(
+        [
+            {
+                "icaoId": "KRDU",
+                "name": "Raleigh-Durham International Airport",
+                "reportTime": "2026-08-06T18:00:00Z",
+                "obsTime": 1786039200,
+                "rawOb": "METAR KRDU 061800Z VRB04KT 10SM SCT050 26/18 A3011",
+                "temp": 26,
+                "dewp": 18,
+                "wdir": "VRB",
+                "wspd": 4,
+                "visib": 10,
+                "altim": 1019.6,
+                "fltCat": "VFR",
+                "clouds": [{"cover": "SCT", "base": 5000}],
+            }
+        ]
+    )
+
+    assert format_wind(
+        observation.wind_direction_deg, observation.wind_speed_kt
+    ) == "Variable at 4 kt / 4.6 mph"
+    assert format_temperature(observation.temperature_c) == "26.0 °C / 78.8 °F"
+    assert format_visibility(observation.visibility_miles) == "10 mi / 16.1 km"
+    assert cloud_rows(observation) == [{"cover": "SCT", "base": 5000}]
+
+
 def test_cloud_rows_are_plain_dashboard_records():
     observation = validate_metar_observation(
         [
@@ -265,6 +294,25 @@ def test_dashboard_styles_do_not_add_side_borders_to_section_headings():
     assert "h2, h3 {{" not in styles
 
 
+def test_summary_cards_wrap_values_and_give_long_fields_more_room():
+    source = (
+        Path(__file__).parents[1]
+        / "src"
+        / "aviation_weather_support"
+        / "dashboard.py"
+    ).read_text(encoding="utf-8")
+    styles = source.split('AUBURN_STYLES = f"""', maxsplit=1)[1].split(
+        '"""', maxsplit=1
+    )[0]
+
+    assert 'div[data-testid="stMetricValue"] p' in styles
+    assert "overflow: visible !important;" in styles
+    assert "overflow-wrap: anywhere !important;" in styles
+    assert "text-overflow: clip !important;" in styles
+    assert "white-space: normal !important;" in styles
+    assert "first_row = st.columns((2, 1.35, 1))" in source
+
+
 def test_dashboard_controls_include_guidance_reset_and_json_downloads():
     source = (
         Path(__file__).parents[1]
@@ -277,6 +325,9 @@ def test_dashboard_controls_include_guidance_reset_and_json_downloads():
         "Enter a four-letter ICAO airport identifier, such as KATL or KJFK."
         in source
     )
+    assert 'if "airport_input" not in st.session_state:' in source
+    assert 'st.session_state["airport_input"] = "KATL"' in source
+    assert 'value="KATL"' not in source
     assert '"Clear / Reset", on_click=clear_dashboard_state' in source
     assert '"Download raw JSON"' in source
     assert '"Download processed JSON"' in source

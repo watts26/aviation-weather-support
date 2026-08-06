@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock
@@ -12,6 +13,7 @@ from aviation_weather_support import workflow
 from aviation_weather_support.workflow import (
     AirportValidationError,
     normalize_airport,
+    process_metar_observations,
     retrieve_metar,
 )
 
@@ -47,6 +49,25 @@ def test_shared_workflow_returns_untouched_raw_and_processed_data(monkeypatch):
         result.operational_assessment.model_dump(mode="json")
     )
     fetch.assert_called_once_with("KATL")
+
+
+def test_variable_wind_preserves_raw_and_processes_remaining_data():
+    raw = deepcopy(load_fixture("metar-katl-success.json"))
+    raw[0]["wdir"] = "VRB"
+    original = deepcopy(raw)
+
+    result = process_metar_observations(
+        "KATL",
+        raw,
+        evaluated_at=datetime(2026, 7, 29, 20, 0, tzinfo=timezone.utc),
+    )
+
+    assert result.raw_observations is raw
+    assert result.raw_observations == original
+    assert result.processed["wind_direction_deg"] == "VRB"
+    assert result.processed["wind_speed_kt"] == 9
+    assert result.processed["visibility_miles"] == 9
+    assert result.operational_assessment.hazards[3].id == "wind"
 
 
 def test_invalid_airport_is_rejected_before_api_retrieval(monkeypatch):

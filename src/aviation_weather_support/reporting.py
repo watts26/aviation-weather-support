@@ -20,6 +20,7 @@ from aviation_weather_support.api import fetch_metar
 from aviation_weather_support.models import (
     MetarDataValidationError,
     MetarObservation,
+    WindDirection,
     validate_metar_observation,
 )
 from aviation_weather_support.operational_rules import (
@@ -153,6 +154,16 @@ def build_report_header(report_data: ReportRenderData) -> ReportHeader:
         overall_concern=report_data.assessment.overall_display_label,
         flight_category=report_data.assessment.flight_category.category.value,
     )
+
+
+def format_wind_direction(value: WindDirection | None) -> str:
+    """Format a decoded wind direction for report display."""
+
+    if value == "VRB":
+        return "Variable"
+    if value is None:
+        return "Not reported"
+    return f"{value}°"
 
 
 def normalize_report_station(value: object) -> str:

@@ -10,6 +10,7 @@ from aviation_weather_support.reporting import (
     OfflineReportDataError,
     build_report_header,
     fixture_resource_for_station,
+    format_wind_direction,
     load_offline_report_data,
     load_report_render_data,
     parse_report_evaluated_at,
@@ -44,6 +45,13 @@ def test_quarto_header_and_sections_prioritize_validated_assessment_metadata():
     assert "{header.evaluated_at}" in report_source
     assert header_position < interpretation_position < hazards_position
     assert hazards_position < supporting_position < sources_position
+    assert "format_wind_direction(observation.wind_direction_deg)" in report_source
+
+
+def test_report_formats_all_supported_wind_directions():
+    assert format_wind_direction(320) == "320°"
+    assert format_wind_direction("VRB") == "Variable"
+    assert format_wind_direction(None) == "Not reported"
 
 
 def test_default_katl_parameters_load_committed_fixture():
