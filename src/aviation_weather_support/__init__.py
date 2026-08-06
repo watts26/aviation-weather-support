@@ -1,8 +1,10 @@
 """Command-line entry points for METAR retrieval and report generation."""
 
 import argparse
+from importlib.util import find_spec
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -15,10 +17,12 @@ from aviation_weather_support.logging_config import (
 from aviation_weather_support.models import MetarDataValidationError
 from aviation_weather_support.operational_rules import INFORMATIONAL_DISCLAIMER
 from aviation_weather_support.reporting import (
+    DEFAULT_REPORT_EVALUATED_AT,
     GeneratedReport,
     ReportWorkflowError,
     create_live_report,
     replay_report,
+    render_fixture_report,
 )
 from aviation_weather_support.workflow import (
     AirportValidationError,
@@ -45,6 +49,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "report":
         _report_main(arguments[1:])
+        return
+    if arguments and arguments[0] == "dashboard":
+        _dashboard_main(arguments[1:])
         return
     _standard_main(arguments)
 
@@ -126,6 +133,19 @@ def _report_main(argv: Sequence[str]) -> None:
         help="four-character ICAO identifier for live report mode",
     )
     parser.add_argument(
+        "--fixture",
+        type=icao_identifier,
+        default=None,
+        metavar="STATION",
+        help="render a packaged offline fixture without contacting the API",
+    )
+    parser.add_argument(
+        "--evaluated-at",
+        default=None,
+        metavar="ISO-TIMESTAMP",
+        help="override the packaged fixture evaluation time",
+    )
+    parser.add_argument(
         "--input",
         type=Path,
         default=None,
@@ -134,12 +154,29 @@ def _report_main(argv: Sequence[str]) -> None:
     )
     _add_logging_arguments(parser)
     args = parser.parse_args(argv)
-    if (args.station is None) == (args.input is None):
-        parser.error("provide either a station or --input, but not both")
+    selected_modes = sum(
+        value is not None for value in (args.station, args.input, args.fixture)
+    )
+    if selected_modes != 1:
+        parser.error("provide exactly one of a station, --input, or --fixture")
+    if args.evaluated_at is not None and args.fixture is None:
+        parser.error("--evaluated-at can only be used with --fixture")
     _configure_cli_logging(args)
+    _require_report_support()
 
     project_root = Path.cwd().resolve()
     try:
+        if args.fixture is not None:
+            pdf_path = render_fixture_report(
+                project_root,
+                args.fixture,
+                evaluated_at=(
+                    args.evaluated_at or DEFAULT_REPORT_EVALUATED_AT
+                ),
+            )
+            print(f"Generated packaged fixture report for {args.fixture}.")
+            print(f"PDF file: {_display_path(project_root, pdf_path)}")
+            return
         if args.input is not None:
             generated = replay_report(project_root, args.input)
         else:
@@ -153,6 +190,38 @@ def _report_main(argv: Sequence[str]) -> None:
         raise SystemExit(1) from exc
 
     _print_report_success(generated, project_root)
+
+
+def _dashboard_main(argv: Sequence[str]) -> None:
+    """Launch the optional installed Streamlit dashboard."""
+
+    from aviation_weather_support.dashboard_launcher import (
+        DashboardDependencyError,
+        launch_dashboard,
+    )
+
+    try:
+        code = launch_dashboard(argv)
+    except DashboardDependencyError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if code:
+        raise SystemExit(code)
+
+
+def _require_report_support() -> None:
+    """Fail before retrieval when optional report prerequisites are missing."""
+
+    if find_spec("jupyter") is None:
+        raise SystemExit(
+            "Error: report support is not installed. Install "
+            "'aviation-weather-support[report]' and try again."
+        )
+    if shutil.which("quarto") is None:
+        raise SystemExit(
+            "Error: Quarto is required for PDF reports. Install Quarto and a "
+            "working PDF engine, then try again."
+        )
 
 
 def _add_logging_arguments(parser: argparse.ArgumentParser) -> None:

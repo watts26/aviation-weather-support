@@ -14,3 +14,6 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+dist/
+output/pdf/*
+!output/pdf/practicum-6.pdf

@@ -6,11 +6,34 @@ Aviation Weather Support retrieves and validates the latest airport METAR, then 
 
 ## Quick start
 
-Python 3.10 or newer, [`uv`](https://docs.astral.sh/uv/), and internet access for live retrieval are required.
+Python 3.10 or newer and internet access for live retrieval are required.
 
 No API key or environment variable is required. PDF report generation also requires Quarto with a working PDF engine.
 
-Clone the project and sync the locked dependencies:
+Install the core CLI from PyPI:
+
+```console
+pip install aviation-weather-support
+aviation-weather-support KATL
+```
+
+Install optional features as needed:
+
+```console
+pip install "aviation-weather-support[dashboard]"
+pip install "aviation-weather-support[report]"
+pip install "aviation-weather-support[all]"
+```
+
+Launch installed features:
+
+```console
+aviation-weather-support dashboard
+aviation-weather-support report KATL
+aviation-weather-support report --fixture KATL
+```
+
+For contributor development, clone the project and sync the locked dependencies with [`uv`](https://docs.astral.sh/uv/):
 
 ```console
 git clone https://github.com/watts26/aviation-weather-support.git
@@ -18,19 +41,19 @@ cd aviation-weather-support
 uv sync
 ```
 
-Run the normal CLI:
+Run the development CLI:
 
 ```console
 uv run aviation-weather-support KATL
 ```
 
-Launch the Streamlit dashboard:
+Launch Streamlit directly during development:
 
 ```console
 uv run streamlit run src/aviation_weather_support/dashboard.py
 ```
 
-Generate a PDF report from a live observation:
+Generate a live PDF during development:
 
 ```console
 uv run aviation-weather-support report KATL
@@ -67,7 +90,7 @@ Use a four-character ICAO identifier such as `KATL`, not a three-letter IATA cod
 
 Overall concern is the highest active known project concern. Unavailable data does not hide a known concern, and the official flight category does not automatically change the project concern level.
 
-**No listed hazard trigger does not mean the flight is safe or approved.** See the [processed-data dictionary](docs/data-dictionary.md) for the complete schema, allowable values, thresholds, and missing-data behavior.
+**No listed hazard trigger does not mean the flight is safe or approved.** See the [processed-data dictionary](https://github.com/watts26/aviation-weather-support/blob/main/docs/data-dictionary.md) for the complete schema, allowable values, thresholds, and missing-data behavior.
 
 ## Report workflow
 
@@ -87,19 +110,19 @@ uv run aviation-weather-support report --input data/reports/raw/KATL_20260805T19
 
 Live and replay reports use the saved evaluation time so observation freshness remains reproducible. Replaying the same station and observation replaces the same PDF rather than creating a numbered duplicate. If validation fails after retrieval, the saved raw input remains available. If rendering fails, the saved raw input and processed assessment remain, but no partial PDF is reported as complete.
 
-To render the committed offline KATL fixture directly with Quarto:
+Render the packaged offline KATL fixture without calling the API:
+
+```console
+aviation-weather-support report --fixture KATL
+```
+
+The repository copy remains available for direct Quarto development:
 
 ```console
 uv run quarto render reports/practicum-6.qmd --to pdf --output-dir ../output/pdf
 ```
 
-Another airport requires a matching committed fixture and an explicit evaluation time. For example, this command requires `tests/fixtures/metar-kauo-success.json`:
-
-```console
-uv run quarto render reports/practicum-6.qmd -P station:KAUO -P evaluated_at:2026-07-29T20:00:00Z --to pdf --output-dir ../output/pdf
-```
-
-Direct Quarto rendering stays offline, never falls back to KATL, and stops on a missing fixture, invalid parameter, or station mismatch.
+Fixture rendering stays offline and stops when the installed package does not contain the requested station fixture.
 
 ## File locations
 
@@ -119,7 +142,7 @@ data/reports/processed/<ICAO>_<retrieval-YYYYMMDDTHHMMSSffffffZ>_metar_processed
 output/pdf/<ICAO>_<observation-YYYYMMDDTHHMMSSZ>_metar_report.pdf
 ```
 
-The processed assessment uses repository-relative source paths for files inside the project. The dashboard keeps the raw and processed JSON available as separate downloads.
+The processed assessment uses working-directory-relative source paths for generated files under the current output root. The dashboard keeps the raw and processed JSON available as separate downloads.
 
 ## Testing
 
@@ -143,4 +166,4 @@ Tests use committed fixtures and mocks. A safeguard fails any unmocked live HTTP
 
 ## License
 
-This project is available under the [MIT License](LICENSE).
+This project is available under the [MIT License](https://github.com/watts26/aviation-weather-support/blob/main/LICENSE).

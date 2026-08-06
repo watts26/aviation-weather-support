@@ -8,12 +8,40 @@ license-files = ["LICENSE"]
 authors = [
     { name = "watts26", email = "jmwatts26@gmail.com" }
 ]
+keywords = ["aviation", "weather", "METAR", "Streamlit", "Quarto"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+]
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.13.4",
     "requests>=2.34.2",
+]
+
+[project.optional-dependencies]
+dashboard = ["streamlit>=1.60.0"]
+report = [
+    "jupyter>=1.1.1",
+    "papermill>=2.6.0",
+]
+all = [
+    "jupyter>=1.1.1",
+    "papermill>=2.6.0",
     "streamlit>=1.60.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/watts26/aviation-weather-support"
+Repository = "https://github.com/watts26/aviation-weather-support.git"
+Issues = "https://github.com/watts26/aviation-weather-support/issues"
+Documentation = "https://github.com/watts26/aviation-weather-support#readme"
 
 [project.scripts]
 aviation-weather-support = "aviation_weather_support:main"
@@ -22,10 +50,24 @@ aviation-weather-support = "aviation_weather_support:main"
 requires = ["uv_build>=0.11.26,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = "aviation_weather_support"
+module-root = "src"
+source-include = ["docs/**", "reports/**", "tests/**"]
+source-exclude = [
+    "/.pytest_cache",
+    "/.venv",
+    "/data",
+    "/dist",
+    "/logs",
+    "/output",
+]
+
 [dependency-groups]
 dev = [
     "jupyter>=1.1.1",
     "matplotlib>=3.10.8",
     "papermill>=2.6.0",
     "pytest>=9.1.1",
+    "streamlit>=1.60.0",
 ]

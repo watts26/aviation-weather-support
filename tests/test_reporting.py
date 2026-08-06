@@ -9,10 +9,11 @@ from aviation_weather_support.reporting import (
     DEFAULT_REPORT_STATION,
     OfflineReportDataError,
     build_report_header,
-    fixture_path_for_station,
+    fixture_resource_for_station,
     load_offline_report_data,
     load_report_render_data,
     parse_report_evaluated_at,
+    report_template_resource,
 )
 
 
@@ -20,9 +21,7 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 
 def test_quarto_parameter_cell_uses_reproducible_defaults():
-    report_source = (PROJECT_ROOT / "reports" / "practicum-6.qmd").read_text(
-        encoding="utf-8"
-    )
+    report_source = report_template_resource().read_text(encoding="utf-8")
 
     assert "#| tags: [parameters]" in report_source
     assert f'station = "{DEFAULT_REPORT_STATION}"' in report_source
@@ -33,9 +32,7 @@ def test_quarto_parameter_cell_uses_reproducible_defaults():
 
 
 def test_quarto_header_and_sections_prioritize_validated_assessment_metadata():
-    report_source = (PROJECT_ROOT / "reports" / "practicum-6.qmd").read_text(
-        encoding="utf-8"
-    )
+    report_source = report_template_resource().read_text(encoding="utf-8")
 
     header_position = report_source.index("**Airport / Station:**")
     interpretation_position = report_source.index("## Interpretation")
@@ -57,8 +54,9 @@ def test_default_katl_parameters_load_committed_fixture():
     )
 
     assert result.station == "KATL"
-    assert result.fixture_path == (
-        PROJECT_ROOT / "tests" / "fixtures" / "metar-katl-success.json"
+    assert result.fixture_reference == (
+        "package:aviation_weather_support/resources/fixtures/"
+        "metar-katl-success.json"
     )
     assert result.observation.icao_id == "KATL"
 
@@ -78,22 +76,25 @@ def test_default_report_header_uses_fixed_evaluation_metadata():
     assert header.evaluated_at == "July 29, 2026 at 8:00 PM UTC"
 
 
-def test_fixture_path_is_derived_from_normalized_station():
-    assert fixture_path_for_station(PROJECT_ROOT, " kauo ") == (
-        PROJECT_ROOT / "tests" / "fixtures" / "metar-kauo-success.json"
+def test_fixture_resource_is_derived_from_normalized_station():
+    assert fixture_resource_for_station(" katl ").name == (
+        "metar-katl-success.json"
     )
 
 
-def test_fixture_station_must_match_requested_station(tmp_path):
-    fixture_dir = tmp_path / "tests" / "fixtures"
-    fixture_dir.mkdir(parents=True)
+def test_fixture_station_must_match_requested_station(tmp_path, monkeypatch):
+    fixture_path = tmp_path / "metar-kauo-success.json"
     katl_data = json.loads(
         (PROJECT_ROOT / "tests" / "fixtures" / "metar-katl-success.json").read_text(
             encoding="utf-8"
         )
     )
-    (fixture_dir / "metar-kauo-success.json").write_text(
+    fixture_path.write_text(
         json.dumps(katl_data), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "aviation_weather_support.reporting.fixture_resource_for_station",
+        lambda station: fixture_path,
     )
 
     with pytest.raises(OfflineReportDataError, match="requested KAUO.*contains KATL"):
@@ -128,7 +129,20 @@ def test_invalid_evaluated_at_is_rejected(value):
 @pytest.mark.parametrize("station", ["ATL", "KATLX", "K@UO", None])
 def test_invalid_station_is_rejected(station):
     with pytest.raises(OfflineReportDataError, match="station"):
-        fixture_path_for_station(PROJECT_ROOT, station)
+        fixture_resource_for_station(station)
+
+
+def test_packaged_resources_match_their_repository_mirrors():
+    assert report_template_resource().read_text(encoding="utf-8") == (
+        PROJECT_ROOT / "reports" / "practicum-6.qmd"
+    ).read_text(encoding="utf-8")
+    assert json.loads(
+        fixture_resource_for_station("KATL").read_text(encoding="utf-8")
+    ) == json.loads(
+        (PROJECT_ROOT / "tests" / "fixtures" / "metar-katl-success.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
 
 def test_default_evaluation_time_makes_freshness_deterministic():

@@ -3,11 +3,14 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib.resources import as_file, files
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Literal
 
@@ -37,6 +40,8 @@ RAW_REPORT_DIRECTORY = Path("data/reports/raw")
 PROCESSED_REPORT_DIRECTORY = Path("data/reports/processed")
 PDF_REPORT_DIRECTORY = Path("output/pdf")
 REPORT_SCHEMA_VERSION = 1
+PACKAGED_REPORT_SOURCE = "resources/quarto/practicum-6.qmd"
+PACKAGED_FIXTURE_DIRECTORY = "resources/fixtures"
 
 
 class OfflineReportDataError(ValueError):
@@ -84,7 +89,7 @@ class OfflineReportData:
     """Validated fixture and deterministic assessment used by a report."""
 
     station: str
-    fixture_path: Path
+    fixture_reference: str
     observation: MetarObservation
     assessment: OperationalAssessment
 
@@ -98,8 +103,9 @@ class ReportRenderData:
     assessment: OperationalAssessment
     evaluated_at: datetime
     retrieved_at: datetime | None
-    raw_source_path: Path
+    raw_source_path: Path | None
     processed_source_path: Path | None
+    raw_source_reference: str | None = None
 
     @property
     def observation_time(self) -> datetime | None:
@@ -165,16 +171,20 @@ def normalize_report_station(value: object) -> str:
     return station
 
 
-def fixture_path_for_station(project_root: Path, station: object) -> Path:
-    """Return the required committed fixture path for a station parameter."""
+def fixture_resource_for_station(station: object):
+    """Return the packaged offline fixture resource for one station."""
 
     normalized = normalize_report_station(station)
-    return (
-        project_root
-        / "tests"
-        / "fixtures"
-        / f"metar-{normalized.lower()}-success.json"
+    return files("aviation_weather_support").joinpath(
+        PACKAGED_FIXTURE_DIRECTORY,
+        f"metar-{normalized.lower()}-success.json",
     )
+
+
+def report_template_resource():
+    """Return the packaged Quarto report template resource."""
+
+    return files("aviation_weather_support").joinpath(PACKAGED_REPORT_SOURCE)
 
 
 def parse_report_evaluated_at(value: object) -> datetime:
@@ -205,30 +215,33 @@ def load_offline_report_data(
     """Load, validate, and deterministically assess one committed fixture."""
 
     normalized = normalize_report_station(station)
-    fixture_path = fixture_path_for_station(project_root, normalized)
-    if not fixture_path.is_file():
-        relative_path = fixture_path.relative_to(project_root).as_posix()
+    fixture_resource = fixture_resource_for_station(normalized)
+    fixture_reference = (
+        "package:aviation_weather_support/"
+        f"{PACKAGED_FIXTURE_DIRECTORY}/metar-{normalized.lower()}-success.json"
+    )
+    if not fixture_resource.is_file():
         raise OfflineReportDataError(
             f"No committed METAR fixture was found for {normalized} at "
-            f"{relative_path}. Report rendering is offline; add the required "
-            "committed fixture before rendering this station."
+            f"{fixture_reference}. Report rendering is offline; this installed "
+            "package does not include a fixture for that station."
         )
 
     try:
-        raw_observations = json.loads(fixture_path.read_text(encoding="utf-8"))
+        raw_observations = json.loads(fixture_resource.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise OfflineReportDataError(
-            f"Committed METAR fixture could not be read: {fixture_path}."
+            f"Committed METAR fixture could not be read: {fixture_reference}."
         ) from exc
     if not isinstance(raw_observations, list) or not raw_observations:
         raise OfflineReportDataError(
-            f"Committed METAR fixture contains no observations: {fixture_path}."
+            f"Committed METAR fixture contains no observations: {fixture_reference}."
         )
     observation = validate_metar_observation(raw_observations)
     if observation.icao_id != normalized:
         raise OfflineReportDataError(
             f"Committed fixture station mismatch: requested {normalized}, but "
-            f"{fixture_path.name} contains {observation.icao_id}."
+            f"{fixture_resource.name} contains {observation.icao_id}."
         )
 
     assessment = assess_current_conditions(
@@ -237,7 +250,7 @@ def load_offline_report_data(
     )
     return OfflineReportData(
         station=normalized,
-        fixture_path=fixture_path,
+        fixture_reference=fixture_reference,
         observation=observation,
         assessment=assessment,
     )
@@ -361,8 +374,9 @@ def load_report_render_data(
             assessment=offline.assessment,
             evaluated_at=offline.assessment.evaluated_at,
             retrieved_at=None,
-            raw_source_path=offline.fixture_path,
+            raw_source_path=None,
             processed_source_path=None,
+            raw_source_reference=offline.fixture_reference,
         )
     if not raw_value or not processed_value:
         raise OfflineReportDataError(
@@ -446,56 +460,120 @@ def render_report_pdf(
     """Render to a temporary PDF and replace the same-observation destination."""
 
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    report_source = project_root / "reports" / "practicum-6.qmd"
     environment = os.environ.copy()
     environment["SOURCE_DATE_EPOCH"] = str(int(evaluated_at.timestamp()))
+    environment["QUARTO_PYTHON"] = sys.executable
     try:
+        _render_packaged_quarto(
+            project_root,
+            station=station,
+            evaluated_at=evaluated_at,
+            raw_input_path=raw_path,
+            processed_input_path=processed_path,
+            pdf_path=pdf_path,
+            environment=environment,
+        )
+    except OSError as exc:
+        raise ReportWorkflowError(f"Unable to render the Quarto PDF: {exc}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise ReportWorkflowError(f"Quarto PDF rendering failed: {detail}") from exc
+
+
+def render_fixture_report(
+    output_root: Path,
+    station: str = DEFAULT_REPORT_STATION,
+    *,
+    evaluated_at: str = DEFAULT_REPORT_EVALUATED_AT,
+) -> Path:
+    """Render the packaged deterministic fixture without contacting the API."""
+
+    normalized = normalize_report_station(station)
+    evaluated = parse_report_evaluated_at(evaluated_at)
+    load_offline_report_data(
+        output_root, station=normalized, evaluated_at=evaluated_at
+    )
+    pdf_path = output_root / PDF_REPORT_DIRECTORY / "practicum-6.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    environment = os.environ.copy()
+    environment["SOURCE_DATE_EPOCH"] = str(int(evaluated.timestamp()))
+    environment["QUARTO_PYTHON"] = sys.executable
+    try:
+        _render_packaged_quarto(
+            output_root,
+            station=normalized,
+            evaluated_at=evaluated,
+            raw_input_path=None,
+            processed_input_path=None,
+            pdf_path=pdf_path,
+            environment=environment,
+        )
+    except OSError as exc:
+        raise ReportWorkflowError(f"Unable to render the Quarto PDF: {exc}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise ReportWorkflowError(f"Quarto PDF rendering failed: {detail}") from exc
+    return pdf_path
+
+
+def _render_packaged_quarto(
+    output_root: Path,
+    *,
+    station: str,
+    evaluated_at: datetime,
+    raw_input_path: Path | None,
+    processed_input_path: Path | None,
+    pdf_path: Path,
+    environment: dict[str, str],
+) -> None:
+    """Render the packaged QMD while its resource context remains active."""
+
+    with as_file(report_template_resource()) as packaged_source:
         with tempfile.TemporaryDirectory(
             prefix="quarto-report-", dir=pdf_path.parent
         ) as temporary_directory:
             temporary_path = Path(temporary_directory)
-            quarto_output_dir = os.path.relpath(
-                temporary_path,
-                start=report_source.parent,
-            )
+            report_source = temporary_path / "practicum-6.qmd"
+            shutil.copy2(packaged_source, report_source)
             command = [
-                "uv",
-                "run",
                 "quarto",
                 "render",
                 str(report_source),
                 "--to",
                 "pdf",
                 "--output-dir",
-                Path(quarto_output_dir).as_posix(),
+                ".",
                 "-P",
                 f"station:{station}",
                 "-P",
                 f"evaluated_at:{_isoformat_utc(evaluated_at)}",
                 "-P",
-                f"raw_input_path:{raw_path.resolve().as_posix()}",
+                f"artifact_root:{output_root.resolve().as_posix()}",
                 "-P",
-                f"processed_input_path:{processed_path.resolve().as_posix()}",
+                "raw_input_path:"
+                + (raw_input_path.resolve().as_posix() if raw_input_path else ""),
+                "-P",
+                "processed_input_path:"
+                + (
+                    processed_input_path.resolve().as_posix()
+                    if processed_input_path
+                    else ""
+                ),
             ]
             subprocess.run(
                 command,
-                cwd=project_root,
+                cwd=temporary_path,
                 env=environment,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            rendered = temporary_path / report_source.with_suffix(".pdf").name
+            rendered = temporary_path / "practicum-6.pdf"
             if not rendered.is_file():
                 raise ReportWorkflowError(
                     "Quarto completed without producing the expected PDF."
                 )
             rendered.replace(pdf_path)
-    except OSError as exc:
-        raise ReportWorkflowError(f"Unable to render the Quarto PDF: {exc}") from exc
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or str(exc)).strip()
-        raise ReportWorkflowError(f"Quarto PDF rendering failed: {detail}") from exc
 
 
 def _process_and_render(

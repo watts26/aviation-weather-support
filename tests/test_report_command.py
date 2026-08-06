@@ -355,3 +355,35 @@ def test_cli_204_failure_explains_that_no_artifacts_were_generated(
     assert "No raw evidence, processed result, or PDF was generated." in output
     assert not (tmp_path / "data").exists()
     assert not (tmp_path / "output").exists()
+
+
+def test_missing_report_extra_fails_before_api_or_files(tmp_path, monkeypatch):
+    api = Mock(side_effect=AssertionError("missing extras must fail before API"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(aviation_weather_support, "find_spec", lambda name: None)
+    monkeypatch.setattr(reporting, "fetch_metar", api)
+
+    with pytest.raises(SystemExit, match=r"\[report\]"):
+        aviation_weather_support.main(["report", "KATL"])
+
+    api.assert_not_called()
+    assert not (tmp_path / "data").exists()
+
+
+def test_fixture_cli_never_calls_api(tmp_path, monkeypatch, capsys):
+    api = Mock(side_effect=AssertionError("fixture mode must not call the API"))
+    rendered = tmp_path / "output/pdf/practicum-6.pdf"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(aviation_weather_support, "_require_report_support", lambda: None)
+    monkeypatch.setattr(reporting, "fetch_metar", api)
+    monkeypatch.setattr(
+        aviation_weather_support,
+        "render_fixture_report",
+        Mock(return_value=rendered),
+    )
+
+    aviation_weather_support.main(["report", "--fixture", "KATL"])
+
+    output = capsys.readouterr().out
+    assert "Generated packaged fixture report for KATL" in output
+    api.assert_not_called()
