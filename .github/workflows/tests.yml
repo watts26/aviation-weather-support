@@ -37,5 +37,8 @@ jobs:
       - name: Install project and test dependencies
         run: uv sync --locked --all-extras --dev
 
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
       - name: Run offline test suite
         run: uv run pytest
