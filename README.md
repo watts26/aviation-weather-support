@@ -153,7 +153,7 @@ uv run pytest
 git diff --check
 ```
 
-Tests use committed fixtures and mocks. A safeguard fails any unmocked live HTTP request, so the suite remains deterministic and offline. No GitHub Actions workflow is currently committed; the same command is suitable for GitHub Actions or another CI service.
+GitHub Actions runs the offline test suite automatically on pushes to `main` and pull requests targeting `main`. Tests use committed fixtures and mocks, and a safeguard blocks unmocked live HTTP requests.
 
 ## Limitations
 
